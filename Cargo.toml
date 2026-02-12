@@ -1,7 +1,7 @@
 workspace = { members = ["examples/vector_store_surrealdb"] }
 [package]
 name = "oris"
-version = "5.0.1"
+version = "0.1.1"
 edition = "2021"
 publish = true
 repository = "https://github.com/fanjia1024/oris"
@@ -12,7 +12,7 @@ keywords = [
     "workflow",
     "llm",
     "runtime",
-    "langgraph",
+    "graph",
     "rag",
     "execution-engine",
 ]

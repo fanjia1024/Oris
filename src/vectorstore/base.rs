@@ -185,21 +185,21 @@ mod tests {
 
     #[test]
     fn test_apply_score_threshold() {
-        let mut docs = vec![
+        let docs = vec![
             Document {
                 page_content: "text1".to_string(),
                 metadata: Default::default(),
-                score: Some(0.8),
+                score: 0.8,
             },
             Document {
                 page_content: "text2".to_string(),
                 metadata: Default::default(),
-                score: Some(0.3),
+                score: 0.3,
             },
         ];
         let filtered = VectorStoreHelpers::apply_score_threshold(docs, Some(0.5));
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].score, Some(0.8));
+        assert_eq!(filtered[0].score, 0.8);
     }
 
     #[test]
@@ -208,16 +208,16 @@ mod tests {
             Document {
                 page_content: "text1".to_string(),
                 metadata: Default::default(),
-                score: Some(0.3),
+                score: 0.3,
             },
             Document {
                 page_content: "text2".to_string(),
                 metadata: Default::default(),
-                score: Some(0.8),
+                score: 0.8,
             },
         ];
         let sorted = VectorStoreHelpers::sort_by_score(docs);
-        assert_eq!(sorted[0].score, Some(0.8));
-        assert_eq!(sorted[1].score, Some(0.3));
+        assert_eq!(sorted[0].score, 0.8);
+        assert_eq!(sorted[1].score, 0.3);
     }
 }

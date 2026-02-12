@@ -21,7 +21,7 @@ use super::{
 };
 use super::utils::convert_messages_to_prompt_args;
 use crate::agent::runtime::{Runtime, TypedContext};
-use crate::langgraph::RunnableConfig;
+use crate::graph::RunnableConfig;
 use serde_json::Value as JsonValue;
 
 /// Input for [UnifiedAgent::invoke_with_config]: either normal state (prompt args) or resume with decisions.

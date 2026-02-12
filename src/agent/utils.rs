@@ -90,6 +90,7 @@ pub fn convert_messages_to_prompt_args(input_variables: PromptArgs) -> Result<Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prompt_args;
     use crate::schemas::Message;
 
     #[test]

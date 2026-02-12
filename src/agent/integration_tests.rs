@@ -18,10 +18,10 @@
 //! - `OLLAMA_HOST`: Ollama host URL (default: http://localhost:11434)
 
 use crate::agent::utils::convert_messages_to_prompt_args;
+use crate::error::ChainError;
 use crate::prompt_args;
 use crate::schemas::Message;
 use crate::schemas::MessageType;
-use crate::ChainError;
 
 /// Unit tests for convert_messages_to_prompt_args function
 ///
@@ -176,8 +176,10 @@ mod unit_tests {
 /// - Running external services (e.g., Ollama locally)
 #[cfg(test)]
 mod integration_tests {
-    use crate::agent::{create_agent, ConversationalAgentBuilder};
+    use crate::agent::create_agent_from_llm;
+    use crate::chain::Chain;
     use crate::llm::openai::{OpenAI, OpenAIModel};
+    use crate::prompt_args;
 
     #[tokio::test]
     #[ignore = "Requires OPENAI_API_KEY environment variable"]
@@ -188,13 +190,10 @@ mod integration_tests {
         )
         .with_model(OpenAIModel::Gpt35);
 
-        let agent = ConversationalAgentBuilder::new()
-            .llm(llm)
-            .prefix("You are a helpful assistant.".to_string())
-            .build()?;
+        let agent = create_agent_from_llm(llm, &[], Some("You are a helpful assistant."))?;
 
         let result = agent
-            .invoke("Hello, how are you?".to_string())
+            .invoke(prompt_args! { "input" => "Hello, how are you?" })
             .await?;
         
         assert!(!result.is_empty(), "Response should not be empty");
@@ -203,19 +202,17 @@ mod integration_tests {
 
     #[tokio::test]
     #[ignore = "Requires running Ollama instance (ollama serve)"]
+    #[cfg(feature = "ollama")]
     async fn test_agent_with_ollama() -> Result<(), Box<dyn std::error::Error>> {
         let llm = crate::llm::ollama::Ollama::new(
             "llama3".to_string(),
             Some(std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string())),
         );
 
-        let agent = ConversationalAgentBuilder::new()
-            .llm(llm)
-            .prefix("You are a helpful assistant.".to_string())
-            .build()?;
+        let agent = create_agent_from_llm(llm, &[], Some("You are a helpful assistant."))?;
 
         let result = agent
-            .invoke("Hello, how are you?".to_string())
+            .invoke(prompt_args! { "input" => "Hello, how are you?" })
             .await?;
         
         assert!(!result.is_empty(), "Response should not be empty");
@@ -232,9 +229,10 @@ mod integration_tests {
 #[cfg(test)]
 mod workflow_tests {
     use crate::chain::Chain;
+    use crate::fmt_template;
     use crate::llm::openai::{OpenAI, OpenAIModel};
-    use crate::prompt::HumanMessagePromptTemplate;
     use crate::message_formatter;
+    use crate::prompt::HumanMessagePromptTemplate;
     use crate::prompt_args;
     use crate::template_fstring;
 
@@ -251,7 +249,7 @@ mod workflow_tests {
             "Translate this to French: {text}",
             "text",
         ));
-        let formatter = message_formatter![prompt.into()];
+        let formatter = message_formatter![fmt_template!(prompt)];
 
         // Step 2: Configure the LLM
         let llm = OpenAI::default()

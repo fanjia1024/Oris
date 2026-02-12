@@ -8,7 +8,7 @@
 //! - **Chains** — LLM chains, conversational and sequential chains, Q&A, SQL
 //! - **Agents** — Chat agents with tools, multi-agent (router, subagents, skills)
 //! - **RAG** — Retrieval-augmented generation (agentic, hybrid, two-step)
-//! - **LangGraph** — State graphs, streaming, persistence, interrupts, subgraphs
+//! - **Graph** — State graphs, streaming, persistence, interrupts, subgraphs
 //! - **Deep Agent** — Planning, filesystem tools, skills, long-term memory, human-in-the-loop
 //! - **Vector stores** — PostgreSQL (pgvector), Qdrant, SQLite (VSS/Vec), SurrealDB, OpenSearch, Chroma, FAISS, MongoDB, Pinecone, Weaviate (enable via features)
 //! - **Embeddings** — OpenAI, Azure, Ollama, FastEmbed, Mistral (feature-gated)
@@ -51,8 +51,8 @@ pub mod document_loaders;
 pub mod embedding;
 /// Unified error types and utilities.
 pub mod error;
-/// LangGraph: state graphs, streaming, persistence, subgraphs.
-pub mod langgraph;
+/// Graph: state graphs, streaming, persistence, subgraphs.
+pub mod graph;
 /// Common LLM/embedding traits and config.
 pub mod language_models;
 /// LLM implementations: OpenAI, Claude, Ollama, Mistral, etc. (feature-gated).

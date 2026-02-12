@@ -181,7 +181,7 @@ impl ResumePayload {
 pub enum AgentInvokeResult {
     /// Agent completed; output is the final generation.
     Complete(String),
-    /// Execution was interrupted for human approval; use `interrupt_value` (action_requests, review_configs) and resume with [crate::langgraph::Command::resume].
+    /// Execution was interrupted for human approval; use `interrupt_value` (action_requests, review_configs) and resume with [crate::graph::Command::resume].
     Interrupt {
         /// Interrupt payload (action_requests, review_configs). Expose as `__interrupt__` in JSON.
         interrupt_value: serde_json::Value,

@@ -194,7 +194,7 @@ where
     pub async fn run_loop(
         &self,
         input_variables: PromptArgs,
-        config: Option<&crate::langgraph::RunnableConfig>,
+        config: Option<&crate::graph::RunnableConfig>,
         resume: Option<(AgentCheckpointState, serde_json::Value)>,
     ) -> Result<GenerateResult, ChainError> {
         let input_variables = if input_variables.contains_key("messages") {
@@ -788,7 +788,7 @@ where
     pub async fn call_with_config(
         &self,
         input_variables: PromptArgs,
-        config: Option<&crate::langgraph::RunnableConfig>,
+        config: Option<&crate::graph::RunnableConfig>,
     ) -> Result<GenerateResult, ChainError> {
         self.run_loop(input_variables, config, None).await
     }
@@ -796,7 +796,7 @@ where
     /// Resume from a checkpoint with human decisions. Requires checkpointer and same thread_id.
     pub async fn call_resume(
         &self,
-        config: &crate::langgraph::RunnableConfig,
+        config: &crate::graph::RunnableConfig,
         resume_decisions: serde_json::Value,
     ) -> Result<GenerateResult, ChainError> {
         let thread_id = config

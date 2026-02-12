@@ -278,7 +278,7 @@ mod tests {
     fn test_with_interrupt_config() {
         let middleware = HumanInTheLoopMiddleware::new().with_interrupt_config(
             "write_file",
-            InterruptConfig::with_allowed_decisions(vec![
+            InterruptConfig::enabled().with_allowed_decisions(vec![
                 "approve".to_string(),
                 "reject".to_string(),
             ]),

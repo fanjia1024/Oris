@@ -18,7 +18,7 @@ use oris::agent::{
     create_deep_agent, AgentInput, AgentInvokeResult, DeepAgentConfig, HitlDecision,
     InMemoryAgentSaver, InterruptConfig, InterruptPayload,
 };
-use oris::langgraph::RunnableConfig;
+use oris::graph::RunnableConfig;
 use oris::schemas::messages::Message;
 
 #[tokio::main]

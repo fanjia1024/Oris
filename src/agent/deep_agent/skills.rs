@@ -12,7 +12,7 @@ use std::path::PathBuf;
 /// Metadata for one skill parsed from SKILL.md frontmatter.
 #[derive(Clone, Debug)]
 pub struct SkillMeta {
-    /// Directory containing the skill (e.g. `skills/langgraph-docs`).
+    /// Directory containing the skill (e.g. `skills/graph-docs`).
     pub dir: PathBuf,
     /// Full path to SKILL.md.
     pub skill_md_path: PathBuf,
@@ -140,14 +140,14 @@ mod tests {
     #[test]
     fn test_parse_frontmatter() {
         let s = r#"---
-name: langgraph-docs
-description: Use this skill for requests related to LangGraph.
+name: graph-docs
+description: Use this skill for requests related to state graphs.
 ---
-# langgraph-docs
+# graph-docs
 Body here."#;
         let (name, desc) = parse_frontmatter(s).unwrap();
-        assert_eq!(name, "langgraph-docs");
-        assert!(desc.contains("LangGraph"));
+        assert_eq!(name, "graph-docs");
+        assert!(desc.contains("graph"));
     }
 
     #[test]
@@ -156,8 +156,8 @@ Body here."#;
             SkillMeta {
                 dir: PathBuf::from("a"),
                 skill_md_path: PathBuf::from("a/SKILL.md"),
-                name: "langgraph-docs".to_string(),
-                description: "Use for LangGraph documentation.".to_string(),
+                name: "graph-docs".to_string(),
+                description: "Use for state graph documentation.".to_string(),
             },
             SkillMeta {
                 dir: PathBuf::from("b"),
@@ -166,8 +166,8 @@ Body here."#;
                 description: "Search arXiv papers.".to_string(),
             },
         ];
-        let m = match_skills(&index, "What is langgraph?");
+        let m = match_skills(&index, "What is the graph API?");
         assert!(!m.is_empty());
-        assert_eq!(m[0].name, "langgraph-docs");
+        assert_eq!(m[0].name, "graph-docs");
     }
 }

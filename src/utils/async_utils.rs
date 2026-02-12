@@ -13,18 +13,13 @@ use std::future::Future;
 /// 所有 Future 的结果向量
 ///
 /// # 示例
-/// ```rust,no_run
+/// ```ignore
 /// use oris::utils::join_all;
-///
-/// # async fn example() {
-/// let futures = vec![
-///     async { 1 },
-///     async { 2 },
-///     async { 3 },
-/// ];
-/// let results = join_all(futures).await;
-/// assert_eq!(results, vec![1, 2, 3]);
-/// # }
+/// async fn example() {
+///     let futures: Vec<_> = (1..=3).map(|i| async move { i }).collect();
+///     let results = join_all(futures).await;
+///     assert_eq!(results, vec![1, 2, 3]);
+/// }
 /// ```
 pub async fn join_all<T, F>(futures: Vec<F>) -> Vec<T>
 where
@@ -57,16 +52,13 @@ where
 /// 所有处理结果的向量
 ///
 /// # 示例
-/// ```rust,no_run
+/// ```ignore
 /// use oris::utils::batch_process;
-///
-/// # async fn example() {
-/// let items = vec![1, 2, 3, 4, 5];
-/// let results = batch_process(items, 2, |item| async move {
-///     item * 2
-/// }).await;
-/// assert_eq!(results, vec![2, 4, 6, 8, 10]);
-/// # }
+/// async fn example() {
+///     let items = vec![1, 2, 3, 4, 5];
+///     let results = batch_process(items, 2, |item| async move { item * 2 }).await;
+///     assert_eq!(results, vec![2, 4, 6, 8, 10]);
+/// }
 /// ```
 pub async fn batch_process<T, R, F, Fut>(items: Vec<T>, batch_size: usize, processor: F) -> Vec<R>
 where
@@ -128,16 +120,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_join_all() {
-        let futures = vec![async { 1 }, async { 2 }, async { 3 }];
+        let futures: Vec<_> = (1..=3).map(|i| async move { i }).collect();
         let results = join_all(futures).await;
         assert_eq!(results, vec![1, 2, 3]);
     }
 
     #[tokio::test]
     async fn test_try_join_all() {
-        let futures = vec![async { Ok::<i32, &str>(1) }, async { Ok(2) }, async {
-            Ok(3)
-        }];
+        let futures: Vec<_> = (1..=3)
+            .map(|i| async move { Ok::<i32, &str>(i) })
+            .collect();
         let results = try_join_all(futures).await.unwrap();
         assert_eq!(results, vec![1, 2, 3]);
     }

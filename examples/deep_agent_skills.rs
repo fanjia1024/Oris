@@ -41,11 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Deep Agent with progressive skills ===\n");
 
-    // This prompt should match the langgraph-docs skill (description mentions LangGraph)
+    // This prompt should match the graph-docs skill (description mentions state graphs)
     let result = agent
         .invoke(prompt_args! {
             "messages" => vec![
-                Message::new_human_message("What is LangGraph? Do you have a skill loaded for it?")
+                Message::new_human_message("What is the graph API? Do you have a skill loaded for it?")
             ]
         })
         .await?;

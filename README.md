@@ -1,22 +1,91 @@
-# Oris — Programmable AI execution runtime in Rust
+# Oris
 
-*Stateful agent workflows, graphs, and tool execution without the Python tax.*
+**A programmable execution runtime for AI agents.**
 
 [![Latest Version](https://img.shields.io/crates/v/oris.svg)](https://crates.io/crates/oris)
 [![docs.rs](https://img.shields.io/docsrs/oris)](https://docs.rs/oris)
 
-## What is Oris?
+Oris is not a prompt framework.
 
-Oris is a **programmable AI execution runtime** for backend and infra engineers who want reliable, multi-step AI workflows in Rust. It gives you stateful graphs, agents with tools, persistence, and interrupts—so you can build agentic pipelines and LangGraph-style flows in one binary, with optional LLM and vector backends.
+It is a runtime layer that lets software systems *execute reasoning*, not just generate text.
 
-Think of it as **Temporal or Ray for AI**: a runtime for defining, running, and persisting AI workflows, not just prompt tooling.
+Modern LLM applications are no longer single requests.
+They are long-running processes: planning, tool use, memory updates, retries, and human approval.
 
-## Why Oris?
+Today this logic lives in ad-hoc code, background jobs, and fragile queues.
 
-- **Rust-native** — One binary, no Python runtime; fits into existing Rust services.
-- **Stateful graphs** — Compose steps as nodes and edges; stream, persist, and time-travel.
-- **Agents and tools** — Chat agents, multi-agent routing, subagents, and human-in-the-loop.
-- **Pluggable backends** — OpenAI, Claude, Gemini, Mistral, Bedrock, Ollama; pgvector, Qdrant, SQLite, SurrealDB, and more via features.
+Oris turns that into a **first-class execution system**.
+
+---
+
+## What Oris actually provides
+
+Oris is closer to **Temporal / Ray** than to a chat SDK.
+
+It provides a persistent execution environment for agentic workloads:
+
+* Stateful execution graphs
+* Durable checkpoints
+* Interruptible runs (human-in-the-loop)
+* Tool calling as system actions
+* Multi-step planning loops
+* Deterministic replay
+* Recovery after crash or deploy
+
+Instead of writing:
+
+> "call LLM → parse → call tool → retry → store memory → schedule task"
+
+You define an execution graph, and the runtime runs it.
+
+---
+
+## Why this exists
+
+LLMs changed backend architecture.
+
+We are moving from:
+
+request → response
+
+to:
+
+goal → process → decisions → actions → memory → continuation
+
+This is not an API problem anymore.
+
+It is an **execution problem**.
+
+Oris is an attempt to build the execution layer for software that *thinks before it acts*.
+
+---
+
+## Mental model
+
+If databases manage data
+and message queues manage communication
+
+**Oris manages reasoning processes.**
+
+---
+
+## What you can build with it
+
+* autonomous coding agents
+* long-running research agents
+* human-approval workflows
+* retrieval-augmented systems
+* operational copilots
+* AI operations pipelines
+
+---
+
+## Status
+
+Early but functional.
+The runtime, graph execution, and agent loop are implemented and usable today.
+
+---
 
 ## Quick start (30 seconds)
 
@@ -44,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Hello-world state graph (no API key needed):
 
 ```rust
-use oris::langgraph::{function_node, MessagesState, StateGraph, END, START};
+use oris::graph::{function_node, MessagesState, StateGraph, END, START};
 use oris::schemas::messages::Message;
 
 #[tokio::main]
@@ -117,10 +186,10 @@ Common environment variables:
 
 ## Examples and docs
 
-- [Hello World graph](examples/langgraph_hello_world.rs)
+- [Hello World graph](examples/graph_hello_world.rs)
 - [Agent with tools](examples/agent.rs)
-- [Streaming](examples/langgraph_streaming.rs)
-- [Persistence](examples/langgraph_persistence_basic.rs)
+- [Streaming](examples/graph_streaming.rs)
+- [Persistence](examples/graph_persistence_basic.rs)
 - [Deep agent (planning + filesystem)](examples/deep_agent_basic.rs)
 
 [API documentation](https://docs.rs/oris) · [Examples directory](examples/)

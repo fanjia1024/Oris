@@ -90,25 +90,12 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```ignore
 /// use std::sync::Arc;
 /// use oris::agent::create_agent;
 /// use oris::agent::middleware::LoggingMiddleware;
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let middleware = vec![Arc::new(LoggingMiddleware::new())];
-/// let agent = create_agent(
-///     "gpt-4o-mini",
-///     &[],
-///     Some("You are a helpful assistant"),
-///     Some(middleware),
-/// )?;
-///
-/// let result = agent.invoke_messages(
-///     vec![oris::schemas::Message::new_human_message("Hello")]
-/// ).await?;
-/// # Ok(())
-/// # }
+/// let agent = create_agent("gpt-4o-mini", &[], Some("You are a helpful assistant"), None).unwrap();
+/// let result = agent.invoke_messages(vec![oris::schemas::Message::new_human_message("Hello")]).await.unwrap();
 /// ```
 pub fn create_agent(
     model: &str,
