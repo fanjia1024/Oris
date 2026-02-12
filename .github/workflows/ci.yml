@@ -29,13 +29,13 @@ jobs:
         shell: bash
         run: |
           echo "TAG_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-          echo "CARGO_VERSION=$(grep -m 1 '^version = ' Cargo.toml | cut -f 3 -d ' ' | tr -d \")" >> $GITHUB_ENV
+          echo "CARGO_VERSION=$(grep -m 1 '^version = ' crates/oris-runtime/Cargo.toml | cut -f 3 -d ' ' | tr -d \")" >> $GITHUB_ENV
       - name: Validate git tag and Cargo.toml version
         shell: bash
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           if [ "${{ env.TAG_VERSION }}" != "v${{ env.CARGO_VERSION }}" ]; then
-            echo "git tag version (${{ env.TAG_VERSION }}) does not match Cargo.toml version (v${{ env.CARGO_VERSION }})"
+            echo "git tag version (${{ env.TAG_VERSION }}) does not match oris-runtime Cargo.toml version (v${{ env.CARGO_VERSION }})"
             exit 1
           fi
       - name: install pandoc
@@ -84,8 +84,8 @@ jobs:
         with:
           command: login
           args: ${{ secrets.CRATES_TOKEN }}
-      - name: Publish oris to crates.io
+      - name: Publish oris-runtime to crates.io
         uses: actions-rs/cargo@v1
         with:
           command: publish
-          args: --all-features
+          args: -p oris-runtime --all-features

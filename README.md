@@ -2,8 +2,8 @@
 
 **A programmable execution runtime for AI agents.**
 
-[![Latest Version](https://img.shields.io/crates/v/oris.svg)](https://crates.io/crates/oris)
-[![docs.rs](https://img.shields.io/docsrs/oris)](https://docs.rs/oris)
+[![Latest Version](https://img.shields.io/crates/v/oris-runtime.svg)](https://crates.io/crates/oris-runtime)
+[![docs.rs](https://img.shields.io/docsrs/oris-runtime)](https://docs.rs/oris-runtime)
 
 Oris is not a prompt framework.
 
@@ -92,14 +92,14 @@ The runtime, graph execution, and agent loop are implemented and usable today.
 Add the crate and set your API key:
 
 ```bash
-cargo add oris
+cargo add oris-runtime
 export OPENAI_API_KEY="your-key"
 ```
 
 Minimal LLM call:
 
 ```rust
-use oris::{language_models::llm::LLM, llm::openai::OpenAI};
+use oris_runtime::{language_models::llm::LLM, llm::openai::OpenAI};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -113,8 +113,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Hello-world state graph (no API key needed):
 
 ```rust
-use oris::graph::{function_node, MessagesState, StateGraph, END, START};
-use oris::schemas::messages::Message;
+use oris_runtime::graph::{function_node, MessagesState, StateGraph, END, START};
+use oris_runtime::schemas::messages::Message;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -164,16 +164,16 @@ flowchart TB
 - **Agents and tools** — Give agents tools (search, filesystem, custom); use multi-agent routers and subagents.
 - **Persistence and interrupts** — Checkpoint state, resume runs, and pause for human approval or review.
 
-See the [examples](examples/) directory for runnable code.
+See the [examples](crates/oris-runtime/examples/) directory for runnable code.
 
 ## Install and config
 
 ```bash
-cargo add oris
+cargo add oris-runtime
 # With a vector store (e.g. PostgreSQL):
-cargo add oris --features postgres
+cargo add oris-runtime --features postgres
 # With Ollama (local):
-cargo add oris --features ollama
+cargo add oris-runtime --features ollama
 ```
 
 Common environment variables:
@@ -186,13 +186,13 @@ Common environment variables:
 
 ## Examples and docs
 
-- [Hello World graph](examples/graph_hello_world.rs)
-- [Agent with tools](examples/agent.rs)
-- [Streaming](examples/graph_streaming.rs)
-- [Persistence](examples/graph_persistence_basic.rs)
-- [Deep agent (planning + filesystem)](examples/deep_agent_basic.rs)
+- [Hello World graph](crates/oris-runtime/examples/graph_hello_world.rs)
+- [Agent with tools](crates/oris-runtime/examples/agent.rs)
+- [Streaming](crates/oris-runtime/examples/graph_streaming.rs)
+- [Persistence](crates/oris-runtime/examples/graph_persistence_basic.rs)
+- [Deep agent (planning + filesystem)](crates/oris-runtime/examples/deep_agent_basic.rs)
 
-[API documentation](https://docs.rs/oris) · [Examples directory](examples/)
+[API documentation](https://docs.rs/oris-runtime) · [Examples directory](crates/oris-runtime/examples/)
 
 ## License and attribution
 
@@ -200,6 +200,6 @@ MIT. This project includes code derived from [langchain-rust](https://github.com
 
 ## Links
 
-- [Crates.io](https://crates.io/crates/oris)
+- [Crates.io](https://crates.io/crates/oris-runtime)
 - [GitHub](https://github.com/fanjia1024/oris)
-- [docs.rs](https://docs.rs/oris)
+- [docs.rs](https://docs.rs/oris-runtime)

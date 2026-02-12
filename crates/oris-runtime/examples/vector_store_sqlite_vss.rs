@@ -1,55 +1,37 @@
-// To run this example execute: `cargo run` in the folder.
+// To run this example execute: cargo run --example vector_store_sqlite_vss --features sqlite-vss
+// Make sure vector0 and vss0 libraries are installed in the system or the path of the executable.
+// Download the libraries from https://github.com/asg017/sqlite-vss
+// For static compilation of sqlite-vss extension refer to the following link:
+// https://github.com/launchbadge/sqlx/issues/3147.
 
+#[cfg(feature = "sqlite-vss")]
 use oris_runtime::{
     embedding::openai::openai_embedder::OpenAiEmbedder,
     schemas::Document,
-    vectorstore::{surrealdb::StoreBuilder, VecStoreOptions, VectorStore},
+    vectorstore::{sqlite_vss::StoreBuilder, VecStoreOptions, VectorStore},
 };
+#[cfg(feature = "sqlite-vss")]
 use std::io::Write;
 
+#[cfg(feature = "sqlite-vss")]
 #[tokio::main]
 async fn main() {
     // Initialize Embedder
     let embedder = OpenAiEmbedder::default();
 
-    let database_url = std::env::var("DATABASE_URL").unwrap_or("memory".to_string());
-
-    let surrealdb_config = surrealdb::opt::Config::new()
-        .set_strict(true)
-        .capabilities(surrealdb::opt::capabilities::Capabilities::all());
-    //  Uncomment the following lines to enable authentication
-    //  .user(surrealdb::opt::auth::Root {
-    //      username: "root".into(),
-    //      password: "root".into(),
-    //  });
-
-    let db = surrealdb::engine::any::connect((database_url, surrealdb_config))
-        .await
-        .unwrap();
-    db.query("DEFINE NAMESPACE test;")
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    db.query("USE NAMESPACE test; DEFINE DATABASE test;")
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-
-    db.use_ns("test").await.unwrap();
-    db.use_db("test").await.unwrap();
+    let database_url = std::env::var("DATABASE_URL").unwrap_or("sqlite::memory:".to_string());
 
     // Initialize the Sqlite Vector Store
     let store = StoreBuilder::new()
         .embedder(embedder)
-        .db(db)
+        .connection_url(database_url)
+        .table("documents")
         .vector_dimensions(1536)
         .build()
         .await
         .unwrap();
 
-    // Intialize the tables in the database. This is required to be done only once.
+    // Initialize the tables in the database. This is required to be done only once.
     store.initialize().await.unwrap();
 
     // Add documents to the database
@@ -76,11 +58,7 @@ async fn main() {
     std::io::stdin().read_line(&mut query).unwrap();
 
     let results = store
-        .similarity_search(
-            &query,
-            2,
-            &VecStoreOptions::default().with_score_threshold(0.6),
-        )
+        .similarity_search(&query, 2, &VecStoreOptions::default())
         .await
         .unwrap();
 
@@ -92,4 +70,11 @@ async fn main() {
             println!("Document: {}", r.page_content);
         });
     }
+}
+
+#[cfg(not(feature = "sqlite-vss"))]
+fn main() {
+    println!("This example requires the 'sqlite-vss' feature to be enabled.");
+    println!("Please run the command as follows:");
+    println!("cargo run --example vector_store_sqlite_vss --features sqlite-vss");
 }
