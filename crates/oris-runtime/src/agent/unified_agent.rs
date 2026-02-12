@@ -306,8 +306,8 @@ mod tests {
         input_vars.insert(
             "messages".to_string(),
             json!([
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi there!"}
+                {"message_type": "human", "content": "Hello"},
+                {"message_type": "ai", "content": "Hi there!"}
             ]),
         );
 

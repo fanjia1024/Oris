@@ -232,6 +232,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Ollama server running locally"]
     fn test_detect_ollama_models() {
         let models = vec!["llama3", "mistral", "codellama", "phi"];
 

@@ -337,7 +337,7 @@ mod tests {
     #[test]
     fn test_redact_strategy() {
         let middleware = PIIMiddleware::new(PIIType::Email, PIIStrategy::Redact);
-        let text = "Contact [email protected]";
+        let text = "Contact test@example.com";
         let result = middleware.process_text(text).unwrap();
         assert!(result.contains("[REDACTED_EMAIL]"));
     }
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn test_mask_strategy() {
         let middleware = PIIMiddleware::new(PIIType::Email, PIIStrategy::Mask);
-        let text = "Contact [email protected]";
+        let text = "Contact test@example.com";
         let result = middleware.process_text(text).unwrap();
         assert!(result.contains("***"));
         assert!(result.contains("@example.com"));
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn test_hash_strategy() {
         let middleware = PIIMiddleware::new(PIIType::Email, PIIStrategy::Hash);
-        let text = "Contact [email protected]";
+        let text = "Contact test@example.com";
         let result = middleware.process_text(text).unwrap();
         // Hash should be a hex string
         assert!(result.len() == 64 || result.contains("Contact"));
@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn test_block_strategy() {
         let middleware = PIIMiddleware::new(PIIType::Email, PIIStrategy::Block);
-        let text = "Contact [email protected]";
+        let text = "Contact test@example.com";
         let result = middleware.process_text(text);
         assert!(result.is_err());
     }

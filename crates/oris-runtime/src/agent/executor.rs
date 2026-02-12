@@ -830,8 +830,8 @@ mod tests {
         input_vars.insert(
             "messages".to_string(),
             json!([
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi there!"}
+                {"message_type": "human", "content": "Hello"},
+                {"message_type": "ai", "content": "Hi there!"}
             ]),
         );
 
@@ -848,7 +848,7 @@ mod tests {
         let mut input_vars = PromptArgs::new();
         input_vars.insert(
             "messages".to_string(),
-            json!([{"role": "user", "content": "Hello"}]),
+            json!([{"message_type": "human", "content": "Hello"}]),
         );
         input_vars.insert("custom_key".to_string(), json!("custom_value"));
 

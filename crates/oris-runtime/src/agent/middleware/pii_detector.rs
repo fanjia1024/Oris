@@ -168,12 +168,12 @@ mod tests {
     #[test]
     fn test_email_detection() {
         let detector = PIIDetector::new(PIIType::Email);
-        let text = "Contact me at [email protected] or [email protected]";
+        let text = "Contact me at one@example.com or two@example.com";
         let matches = detector.detect(text);
         assert_eq!(matches.len(), 2);
         assert!(matches
             .iter()
-            .any(|m| m.matched_text == "[email protected]"));
+            .any(|m| m.matched_text == "one@example.com"));
     }
 
     #[test]

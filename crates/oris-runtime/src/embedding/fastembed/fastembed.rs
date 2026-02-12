@@ -65,6 +65,7 @@ impl Embedder for FastEmbed {
 mod tests {
     use super::*;
     #[tokio::test]
+    #[ignore = "requires onnx/model.onnx to be available"]
     async fn test_fastembed() {
         let fastembed = FastEmbed::try_new().unwrap();
         let embeddings = fastembed

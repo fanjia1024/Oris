@@ -75,57 +75,50 @@ impl<R: Read + Send + Sync + 'static> Loader for JsonLoader<R> {
         let jq_spec = self.jq_spec.clone();
 
         let stream = stream! {
-            // Try to parse as JSONL first (one JSON per line)
-            let lines: Vec<&str> = content.lines().collect();
-            let mut is_jsonl = false;
-            let mut jsonl_docs = Vec::new();
+            let full_parsed = serde_json::from_str::<Value>(&content);
+            let use_full_json = matches!(&full_parsed, Ok(Value::Array(_)) | Ok(Value::Object(_)));
 
-            for (line_num, line) in lines.iter().enumerate() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-
-                match serde_json::from_str::<Value>(trimmed) {
-                    Ok(value) => {
-                        is_jsonl = true;
-                        let doc = create_document_from_json_value(&value, jq_spec.as_deref(), line_num + 1)?;
-                        jsonl_docs.push(doc);
-                    }
-                    Err(_) => {
-                        // Not valid JSON on this line, might be regular JSON
-                        break;
-                    }
-                }
-            }
-
-            if is_jsonl && !jsonl_docs.is_empty() {
-                // It's JSONL format
-                for doc in jsonl_docs {
-                    yield Ok(doc);
-                }
-            } else {
-                // Try to parse as regular JSON
-                match serde_json::from_str::<Value>(&content) {
-                    Ok(value) => {
-                        match value {
-                            Value::Array(arr) => {
-                                // Array of objects
-                                for (idx, item) in arr.into_iter().enumerate() {
-                                    let doc = create_document_from_json_value(&item, jq_spec.as_deref(), idx)?;
-                                    yield Ok(doc);
-                                }
-                            }
-                            _ => {
-                                // Single object
-                                let doc = create_document_from_json_value(&value, jq_spec.as_deref(), 0)?;
+            if use_full_json {
+                if let Ok(value) = full_parsed {
+                    match value {
+                        Value::Array(arr) => {
+                            for (idx, item) in arr.into_iter().enumerate() {
+                                let doc = create_document_from_json_value(&item, jq_spec.as_deref(), idx)?;
                                 yield Ok(doc);
                             }
                         }
+                        _ => {
+                            let doc = create_document_from_json_value(&value, jq_spec.as_deref(), 0)?;
+                            yield Ok(doc);
+                        }
                     }
-                    Err(e) => {
-                        yield Err(LoaderError::JsonError(e));
+                }
+            } else {
+                // JSONL (one JSON per line)
+                let lines: Vec<&str> = content.lines().collect();
+                let mut jsonl_docs = Vec::new();
+
+                for (line_num, line) in lines.iter().enumerate() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
                     }
+
+                    match serde_json::from_str::<Value>(trimmed) {
+                        Ok(value) => {
+                            let doc = create_document_from_json_value(&value, jq_spec.as_deref(), line_num)?;
+                            jsonl_docs.push(doc);
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                if !jsonl_docs.is_empty() {
+                    for doc in jsonl_docs {
+                        yield Ok(doc);
+                    }
+                } else if let Err(e) = serde_json::from_str::<Value>(&content) {
+                    yield Err(LoaderError::JsonError(e));
                 }
             }
         };
@@ -264,6 +257,6 @@ mod tests {
             .await;
 
         assert_eq!(documents.len(), 1);
-        assert_eq!(documents[0].page_content, "\"Hello world\"");
+        assert_eq!(documents[0].page_content, "Hello world");
     }
 }

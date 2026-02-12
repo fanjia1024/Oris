@@ -200,13 +200,7 @@ mod integration_tests {
     #[ignore = "Requires running Ollama instance (ollama serve)"]
     #[cfg(feature = "ollama")]
     async fn test_agent_with_ollama() -> Result<(), Box<dyn std::error::Error>> {
-        let llm = crate::llm::ollama::Ollama::new(
-            "llama3".to_string(),
-            Some(
-                std::env::var("OLLAMA_HOST")
-                    .unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            ),
-        );
+        let llm = crate::llm::ollama::Ollama::default().with_model("llama3");
 
         let agent = create_agent_from_llm(llm, &[], Some("You are a helpful assistant."))?;
 

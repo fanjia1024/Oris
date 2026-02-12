@@ -163,6 +163,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "requires pandoc and test_data/sample.docx in repo"]
     async fn test_pandoc_loader() {
         let path = "./src/document_loaders/test_data/sample.docx";
 

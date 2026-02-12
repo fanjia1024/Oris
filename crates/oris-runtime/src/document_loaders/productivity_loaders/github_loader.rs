@@ -62,6 +62,11 @@ impl GitHubLoader {
     pub fn from_repo(owner: impl Into<String>, repo: impl Into<String>) -> Self {
         Self::new(GitHubConfig::new(owner.into(), repo.into()))
     }
+
+    pub fn with_path<S: Into<String>>(mut self, path: S) -> Self {
+        self.config = self.config.with_path(path);
+        self
+    }
 }
 
 #[async_trait]
