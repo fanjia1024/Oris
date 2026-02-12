@@ -40,8 +40,18 @@
 //! ```
 //!
 //! See the [repository](https://github.com/fanjia1024/oris) and [examples](https://github.com/fanjia1024/oris/tree/main/examples) for more.
+//!
+//! ## Stable API (0.1.x)
+//!
+//! The following modules are the **stable surface**; we avoid breaking changes to their public paths in 0.1.x:
+//!
+//! - **[graph](graph)** — State graphs, execution, persistence, interrupts. Use `graph::StateGraph`, `graph::MessagesState`, checkpointer, and interrupt/resume.
+//! - **[agent](agent)** — Agent loop, tools, Deep Agent (planning, skills).
+//! - **[tools](tools)** — Tool trait and built-in tools.
+//!
+//! State types (e.g. `graph::MessagesState`) are part of the stable graph API. Other modules (chain, document_loaders, llm, rag, etc.) are building blocks and may see path or API adjustments in minor updates.
 
-/// Agents: conversational and unified agents, tools, executor, middleware, Deep Agent.
+/// Agents: conversational and unified agents, tools, executor, middleware, Deep Agent. **Stable API.**
 pub mod agent;
 /// Chains: LLM, conversational, sequential, QA, SQL, RAG chains and options.
 pub mod chain;
@@ -51,7 +61,7 @@ pub mod document_loaders;
 pub mod embedding;
 /// Unified error types and utilities.
 pub mod error;
-/// Graph: state graphs, streaming, persistence, subgraphs.
+/// Graph: state graphs, streaming, persistence, subgraphs, interrupts. **Stable API.**
 pub mod graph;
 /// Common LLM/embedding traits and config.
 pub mod language_models;
@@ -73,7 +83,7 @@ pub mod schemas;
 pub mod semantic_router;
 /// Text splitters and code splitters (tree-sitter when enabled).
 pub mod text_splitter;
-/// Tools: command, search, Wolfram, long-term memory, etc.
+/// Tools: command, search, Wolfram, long-term memory, etc. **Stable API.**
 pub mod tools;
 /// Utilities: similarity, vectors, builder, async helpers.
 pub mod utils;

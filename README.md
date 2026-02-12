@@ -166,6 +166,18 @@ flowchart TB
 
 See the [examples](crates/oris-runtime/examples/) directory for runnable code.
 
+## Public API (stable)
+
+The following modules are the **stable surface** for building on Oris. Prefer these entry points; other modules may change in 0.1.x.
+
+| Entry | Purpose |
+|-------|---------|
+| `oris_runtime::graph` | State graphs, execution, persistence, interrupts (`StateGraph`, `MessagesState`, checkpointer, `interrupt`/resume) |
+| `oris_runtime::agent` | Agent loop, tools, Deep Agent (planning, skills) |
+| `oris_runtime::tools` | Tool trait and built-in tools |
+
+State types (e.g. `graph::MessagesState`, `graph::State`) are part of the stable graph API. [Full API docs](https://docs.rs/oris-runtime).
+
 ## Install and config
 
 ```bash
@@ -187,6 +199,7 @@ Common environment variables:
 ## Examples and docs
 
 - [Hello World graph](crates/oris-runtime/examples/graph_hello_world.rs)
+- [Durable agent job](crates/oris-runtime/examples/durable_agent_job.rs) — interrupt, restart, resume with same `thread_id`; state is checkpointed so it survives process restarts.
 - [Agent with tools](crates/oris-runtime/examples/agent.rs)
 - [Streaming](crates/oris-runtime/examples/graph_streaming.rs)
 - [Persistence](crates/oris-runtime/examples/graph_persistence_basic.rs)
