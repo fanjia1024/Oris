@@ -171,9 +171,7 @@ mod tests {
         let text = "Contact me at one@example.com or two@example.com";
         let matches = detector.detect(text);
         assert_eq!(matches.len(), 2);
-        assert!(matches
-            .iter()
-            .any(|m| m.matched_text == "one@example.com"));
+        assert!(matches.iter().any(|m| m.matched_text == "one@example.com"));
     }
 
     #[test]
