@@ -3,9 +3,7 @@ use oris_runtime::chain::{Chain, LLMChainBuilder};
 use oris_runtime::llm::OpenAI;
 use oris_runtime::prompt::HumanMessagePromptTemplate;
 use oris_runtime::schemas::Message;
-use oris_runtime::{
-    fmt_message, fmt_template, message_formatter, prompt_args, template_fstring,
-};
+use oris_runtime::{fmt_message, fmt_template, message_formatter, prompt_args, template_fstring};
 
 #[tokio::main]
 async fn main() {

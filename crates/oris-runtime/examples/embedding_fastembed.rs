@@ -1,7 +1,5 @@
 #[cfg(feature = "fastembed")]
-use oris_runtime::embedding::{
-    Embedder, EmbeddingModel, FastEmbed, InitOptions, TextEmbedding,
-};
+use oris_runtime::embedding::{Embedder, EmbeddingModel, FastEmbed, InitOptions, TextEmbedding};
 
 #[cfg(feature = "fastembed")]
 #[tokio::main]

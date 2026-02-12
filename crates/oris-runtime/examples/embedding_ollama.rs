@@ -1,7 +1,5 @@
 #[cfg(feature = "ollama")]
-use oris_runtime::embedding::{
-    embedder_trait::Embedder, ollama::ollama_embedder::OllamaEmbedder,
-};
+use oris_runtime::embedding::{embedder_trait::Embedder, ollama::ollama_embedder::OllamaEmbedder};
 
 #[cfg(feature = "ollama")]
 #[tokio::main]

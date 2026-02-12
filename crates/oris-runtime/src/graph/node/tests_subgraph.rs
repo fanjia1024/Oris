@@ -1,9 +1,7 @@
 #[cfg(test)]
 mod subgraph_tests {
     use crate::graph::node::Node;
-    use crate::graph::{
-        function_node, state::MessagesState, StateGraph, SubgraphNode, END, START,
-    };
+    use crate::graph::{function_node, state::MessagesState, StateGraph, SubgraphNode, END, START};
     use std::collections::HashMap;
 
     #[tokio::test]

@@ -28,12 +28,12 @@ impl Command {
     ///
     /// # Example
     ///
-/// ```rust,no_run
-/// use oris_runtime::graph::Command;
-///
-/// let _cmd = Command::resume(true);
-/// let _cmd = Command::resume("approved");
-/// ```
+    /// ```rust,no_run
+    /// use oris_runtime::graph::Command;
+    ///
+    /// let _cmd = Command::resume(true);
+    /// let _cmd = Command::resume("approved");
+    /// ```
     pub fn resume(value: impl Into<Value>) -> Self {
         Self::Resume {
             value: value.into(),
@@ -44,11 +44,11 @@ impl Command {
     ///
     /// # Example
     ///
-/// ```rust,no_run
-/// use oris_runtime::graph::Command;
-///
-/// let _cmd = Command::goto("approve_node");
-/// ```
+    /// ```rust,no_run
+    /// use oris_runtime::graph::Command;
+    ///
+    /// let _cmd = Command::goto("approve_node");
+    /// ```
     pub fn goto(node: impl Into<String>) -> Self {
         Self::Goto { node: node.into() }
     }

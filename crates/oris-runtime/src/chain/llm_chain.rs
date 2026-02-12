@@ -102,7 +102,10 @@ impl Chain for LLMChain {
 
     async fn call(&self, input_variables: PromptArgs) -> Result<GenerateResult, ChainError> {
         let prompt = self.prompt.format_prompt(input_variables.clone())?;
-        log::debug!("Processing LLMChain with {} input variables", input_variables.len());
+        log::debug!(
+            "Processing LLMChain with {} input variables",
+            input_variables.len()
+        );
         let mut output = self.llm.generate(&prompt.to_chat_messages()).await?;
         output.generation = self.output_parser.parse(&output.generation).await?;
 

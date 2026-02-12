@@ -1,5 +1,5 @@
 use oris_runtime::graph::{
-    function_node_with_store, InMemorySaver, InMemoryStore, GraphError, MessagesState,
+    function_node_with_store, GraphError, InMemorySaver, InMemoryStore, MessagesState,
     RunnableConfig, StateGraph, END, START,
 };
 use oris_runtime::schemas::messages::Message;
@@ -15,9 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a node that stores and retrieves data
     let process_node = function_node_with_store(
         "process",
-        |state: &MessagesState,
-         config: &RunnableConfig,
-         store: oris_runtime::graph::StoreBox| {
+        |state: &MessagesState, config: &RunnableConfig, store: oris_runtime::graph::StoreBox| {
             let user_id = config.get_user_id().unwrap_or("default".to_string());
             let last_message = state
                 .messages

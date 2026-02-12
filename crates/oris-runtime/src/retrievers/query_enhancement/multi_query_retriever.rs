@@ -127,7 +127,10 @@ impl Retriever for MultiQueryRetriever {
             match self.base_retriever.get_relevant_documents(&q).await {
                 Ok(results) => all_results.push(results),
                 Err(e) => {
-                    log::warn!("Failed to retrieve documents for generated query (length: {})", q.len());
+                    log::warn!(
+                        "Failed to retrieve documents for generated query (length: {})",
+                        q.len()
+                    );
                     all_results.push(Vec::new());
                 }
             }

@@ -33,9 +33,9 @@ impl ChannelStreamWriter {
 #[async_trait]
 impl StreamWriter for ChannelStreamWriter {
     async fn write(&self, data: Value) -> Result<(), GraphError> {
-        self.sender.send(data).map_err(|_| {
-            GraphError::StreamingError("Failed to send custom data".to_string())
-        })?;
+        self.sender
+            .send(data)
+            .map_err(|_| GraphError::StreamingError("Failed to send custom data".to_string()))?;
         Ok(())
     }
 }

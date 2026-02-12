@@ -45,8 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Create retriever
-    let retriever: Arc<dyn oris_runtime::schemas::Retriever> =
-        Arc::new(Retriever::new(store, 3));
+    let retriever: Arc<dyn oris_runtime::schemas::Retriever> = Arc::new(Retriever::new(store, 3));
 
     // Build Agentic RAG
     let agentic_rag = AgenticRAGBuilder::new()

@@ -93,9 +93,7 @@ impl CheckpointConfig {
     }
 
     /// Create from RunnableConfig
-    pub fn from_config(
-        config: &RunnableConfig,
-    ) -> Result<Self, crate::graph::error::GraphError> {
+    pub fn from_config(config: &RunnableConfig) -> Result<Self, crate::graph::error::GraphError> {
         let thread_id = config.get_thread_id().ok_or_else(|| {
             crate::graph::error::GraphError::ExecutionError(
                 "thread_id is required in config".to_string(),

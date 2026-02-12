@@ -43,7 +43,9 @@ use crate::schemas::MessageType;
 /// };
 /// let result = convert_messages_to_prompt_args(input)?;
 /// ```
-pub fn convert_messages_to_prompt_args(input_variables: PromptArgs) -> Result<PromptArgs, ChainError> {
+pub fn convert_messages_to_prompt_args(
+    input_variables: PromptArgs,
+) -> Result<PromptArgs, ChainError> {
     let messages_value = input_variables
         .get("messages")
         .ok_or_else(|| ChainError::OtherError("Missing 'messages' key".to_string()))?;

@@ -24,8 +24,7 @@ async fn main() {
         .await
         .unwrap();
 
-    let doc1 =
-        Document::new("oris is a programmable AI execution runtime in Rust.");
+    let doc1 = Document::new("oris is a programmable AI execution runtime in Rust.");
     let doc2 = Document::new("oris is a programmable AI execution runtime in Rust.");
     let doc3 = Document::new("Capital of USA is Washington D.C. Capital of France is Paris.");
 

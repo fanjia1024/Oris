@@ -103,16 +103,13 @@ mod unit_tests {
         let result = convert_messages_to_prompt_args(input);
         assert!(result.is_ok());
         let args = result.unwrap();
-        
+
         // Should preserve existing chat_history, not overwrite with messages
         let chat_history = args["chat_history"]
             .as_array()
             .expect("chat_history should be an array");
         assert_eq!(chat_history.len(), 1);
-        assert_eq!(
-            chat_history[0]["content"],
-            serde_json::json!("Previous")
-        );
+        assert_eq!(chat_history[0]["content"], serde_json::json!("Previous"));
     }
 
     #[test]
@@ -185,8 +182,7 @@ mod integration_tests {
     #[ignore = "Requires OPENAI_API_KEY environment variable"]
     async fn test_agent_with_openai() -> Result<(), Box<dyn std::error::Error>> {
         let llm = OpenAI::new(
-            crate::llm::openai::OpenAIConfig::new()
-                .with_api_key(std::env::var("OPENAI_API_KEY")?),
+            crate::llm::openai::OpenAIConfig::new().with_api_key(std::env::var("OPENAI_API_KEY")?),
         )
         .with_model(OpenAIModel::Gpt35);
 
@@ -195,7 +191,7 @@ mod integration_tests {
         let result = agent
             .invoke(prompt_args! { "input" => "Hello, how are you?" })
             .await?;
-        
+
         assert!(!result.is_empty(), "Response should not be empty");
         Ok(())
     }
@@ -206,7 +202,10 @@ mod integration_tests {
     async fn test_agent_with_ollama() -> Result<(), Box<dyn std::error::Error>> {
         let llm = crate::llm::ollama::Ollama::new(
             "llama3".to_string(),
-            Some(std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string())),
+            Some(
+                std::env::var("OLLAMA_HOST")
+                    .unwrap_or_else(|_| "http://localhost:11434".to_string()),
+            ),
         );
 
         let agent = create_agent_from_llm(llm, &[], Some("You are a helpful assistant."))?;
@@ -214,7 +213,7 @@ mod integration_tests {
         let result = agent
             .invoke(prompt_args! { "input" => "Hello, how are you?" })
             .await?;
-        
+
         assert!(!result.is_empty(), "Response should not be empty");
         Ok(())
     }
@@ -252,8 +251,7 @@ mod workflow_tests {
         let formatter = message_formatter![fmt_template!(prompt)];
 
         // Step 2: Configure the LLM
-        let llm = OpenAI::default()
-            .with_model(OpenAIModel::Gpt35.to_string());
+        let llm = OpenAI::default().with_model(OpenAIModel::Gpt35.to_string());
 
         // Step 3: Build the chain
         let chain = crate::chain::LLMChainBuilder::new()
@@ -263,13 +261,13 @@ mod workflow_tests {
             .expect("Failed to build chain");
 
         // Step 4: Invoke the chain
-        let result = chain
-            .invoke(prompt_args! { "text" => "Hello world" })
-            .await;
+        let result = chain.invoke(prompt_args! { "text" => "Hello world" }).await;
 
         assert!(result.is_ok(), "Chain should execute successfully");
         let response = result.unwrap();
-        assert!(response.contains("Bonjour") || response.contains("French"),
-            "Response should contain French translation");
+        assert!(
+            response.contains("Bonjour") || response.contains("French"),
+            "Response should contain French translation"
+        );
     }
 }

@@ -82,7 +82,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     if let Some(interrupts) = &result.interrupt {
-        println!("  -> Interrupted for approval ({} interrupt(s))", interrupts.len());
+        println!(
+            "  -> Interrupted for approval ({} interrupt(s))",
+            interrupts.len()
+        );
         for (i, v) in interrupts.iter().enumerate() {
             println!("     [{}] {}", i + 1, v.value);
         }

@@ -32,8 +32,7 @@ pub async fn execute_nodes_parallel<S: State>(
             let store = store.clone();
 
             async move {
-                let node =
-                    node_opt.ok_or_else(|| GraphError::NodeNotFound(node_name.clone()))?;
+                let node = node_opt.ok_or_else(|| GraphError::NodeNotFound(node_name.clone()))?;
                 let update = node.invoke_with_context(&state, config, store).await?;
                 Ok::<(String, StateUpdate), GraphError>((node_name, update))
             }
@@ -98,10 +97,7 @@ fn merge_single_update<S: State>(state: &S, update: &StateUpdate) -> Result<S, G
 }
 
 /// Merge update for MessagesState (specialized handling)
-fn merge_messages_state_update<S: State>(
-    state: &S,
-    update: &StateUpdate,
-) -> Result<S, GraphError> {
+fn merge_messages_state_update<S: State>(state: &S, update: &StateUpdate) -> Result<S, GraphError> {
     use crate::graph::state::{apply_update_to_messages_state, MessagesState};
 
     let state_json = serde_json::to_value(state).map_err(GraphError::SerializationError)?;

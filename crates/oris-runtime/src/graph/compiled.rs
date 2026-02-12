@@ -225,8 +225,7 @@ impl<S: State + 'static> CompiledGraph<S> {
 
         // For other state types, create a new state from the update and merge
         // This requires the state to be serializable/deserializable
-        let update_json =
-            serde_json::to_value(update).map_err(GraphError::SerializationError)?;
+        let update_json = serde_json::to_value(update).map_err(GraphError::SerializationError)?;
 
         // Try to deserialize update as state and merge
         // This is a simplified approach
@@ -932,9 +931,7 @@ impl<S: State + 'static> CompiledGraph<S> {
 
         // Check if checkpointer is available (required for interrupts)
         let checkpointer = self.checkpointer.as_ref().ok_or_else(|| {
-            GraphError::ExecutionError(
-                "Checkpointer is required for interrupt support".to_string(),
-            )
+            GraphError::ExecutionError("Checkpointer is required for interrupt support".to_string())
         })?;
 
         // Handle Command input or regular state
@@ -948,10 +945,7 @@ impl<S: State + 'static> CompiledGraph<S> {
                         .get(thread_id, Some(checkpoint_id))
                         .await
                         .map_err(|e| {
-                            GraphError::ExecutionError(format!(
-                                "Failed to load checkpoint: {}",
-                                e
-                            ))
+                            GraphError::ExecutionError(format!("Failed to load checkpoint: {}", e))
                         })?;
 
                     let snapshot = snapshot.ok_or_else(|| {
@@ -1364,16 +1358,14 @@ impl<S: State + 'static> CompiledGraph<S> {
     /// Get the current state for a thread
     ///
     /// Returns the latest checkpoint for the given thread_id.
-    pub async fn get_state(
-        &self,
-        config: &RunnableConfig,
-    ) -> Result<StateSnapshot<S>, GraphError> {
+    pub async fn get_state(&self, config: &RunnableConfig) -> Result<StateSnapshot<S>, GraphError> {
         let checkpoint_config = CheckpointConfig::from_config(config)?;
         let thread_id = &checkpoint_config.thread_id;
 
-        let checkpointer = self.checkpointer.as_ref().ok_or_else(|| {
-            GraphError::ExecutionError("Checkpointer not configured".to_string())
-        })?;
+        let checkpointer = self
+            .checkpointer
+            .as_ref()
+            .ok_or_else(|| GraphError::ExecutionError("Checkpointer not configured".to_string()))?;
 
         let snapshot = checkpointer
             .get(thread_id, checkpoint_config.checkpoint_id.as_deref())
@@ -1395,13 +1387,15 @@ impl<S: State + 'static> CompiledGraph<S> {
         let checkpoint_config = CheckpointConfig::from_config(config)?;
         let thread_id = &checkpoint_config.thread_id;
 
-        let checkpointer = self.checkpointer.as_ref().ok_or_else(|| {
-            GraphError::ExecutionError("Checkpointer not configured".to_string())
-        })?;
+        let checkpointer = self
+            .checkpointer
+            .as_ref()
+            .ok_or_else(|| GraphError::ExecutionError("Checkpointer not configured".to_string()))?;
 
-        checkpointer.list(thread_id, None).await.map_err(|e| {
-            GraphError::ExecutionError(format!("Failed to get state history: {}", e))
-        })
+        checkpointer
+            .list(thread_id, None)
+            .await
+            .map_err(|e| GraphError::ExecutionError(format!("Failed to get state history: {}", e)))
     }
 
     /// Update the state for a thread
@@ -1452,16 +1446,15 @@ impl<S: State + 'static> CompiledGraph<S> {
         }
 
         // Save updated checkpoint
-        let checkpointer = self.checkpointer.as_ref().ok_or_else(|| {
-            GraphError::ExecutionError("Checkpointer not configured".to_string())
-        })?;
+        let checkpointer = self
+            .checkpointer
+            .as_ref()
+            .ok_or_else(|| GraphError::ExecutionError("Checkpointer not configured".to_string()))?;
 
         let checkpoint_id = checkpointer
             .put(new_snapshot.thread_id(), &new_snapshot)
             .await
-            .map_err(|e| {
-                GraphError::ExecutionError(format!("Failed to update state: {}", e))
-            })?;
+            .map_err(|e| GraphError::ExecutionError(format!("Failed to update state: {}", e)))?;
 
         // Update snapshot with new checkpoint_id
         new_snapshot.config.checkpoint_id = Some(checkpoint_id);
@@ -1519,9 +1512,7 @@ pub enum StreamEvent<S: State> {
     /// The graph has completed execution
     GraphEnd { final_state: S },
     /// An error occurred during execution
-    Error {
-        error: std::sync::Arc<GraphError>,
-    },
+    Error { error: std::sync::Arc<GraphError> },
     /// A message chunk from an LLM node (for messages stream mode)
     MessageChunk {
         node: String,

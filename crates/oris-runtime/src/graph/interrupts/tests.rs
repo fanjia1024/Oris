@@ -3,7 +3,10 @@ mod tests {
     use crate::graph::{
         error::GraphError,
         function_node,
-        interrupts::{interrupt, set_interrupt_context, state_or_command::StateOrCommand, Command, InterruptContext},
+        interrupts::{
+            interrupt, set_interrupt_context, state_or_command::StateOrCommand, Command,
+            InterruptContext,
+        },
         persistence::{InMemorySaver, RunnableConfig},
         state::MessagesState,
         StateGraph, END, START,

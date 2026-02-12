@@ -125,10 +125,10 @@ impl<C: Config + Send + Sync + 'static> LLM for OpenAI<C> {
                                 }
                             }
                         }
-                            Err(err) => {
-                                log::warn!("Error from streaming response");
-                                return Err(LLMError::OtherError(err.to_string()));
-                            }
+                        Err(err) => {
+                            log::warn!("Error from streaming response");
+                            return Err(LLMError::OtherError(err.to_string()));
+                        }
                     }
                 }
                 Ok(generate_result)

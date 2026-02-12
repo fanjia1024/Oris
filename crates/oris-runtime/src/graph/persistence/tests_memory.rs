@@ -110,9 +110,7 @@ mod memory_tests {
                     let memories = store
                         .search(&namespace, Some("pizza"), None)
                         .await
-                        .map_err(|e| {
-                            GraphError::ExecutionError(format!("Store error: {}", e))
-                        })?;
+                        .map_err(|e| GraphError::ExecutionError(format!("Store error: {}", e)))?;
 
                     let mut update = HashMap::new();
                     update.insert(

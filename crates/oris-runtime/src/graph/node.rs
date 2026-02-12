@@ -89,10 +89,7 @@ pub struct FunctionNode<S: State> {
             dyn Fn(
                     &S,
                 ) -> std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<Output = Result<StateUpdate, GraphError>>
-                            + Send,
-                    >,
+                    Box<dyn std::future::Future<Output = Result<StateUpdate, GraphError>> + Send>,
                 > + Send
                 + Sync,
         >,
@@ -103,10 +100,7 @@ pub struct FunctionNode<S: State> {
                     &S,
                     &RunnableConfig,
                 ) -> std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<Output = Result<StateUpdate, GraphError>>
-                            + Send,
-                    >,
+                    Box<dyn std::future::Future<Output = Result<StateUpdate, GraphError>> + Send>,
                 > + Send
                 + Sync,
         >,
@@ -118,10 +112,7 @@ pub struct FunctionNode<S: State> {
                     &RunnableConfig,
                     StoreBox,
                 ) -> std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<Output = Result<StateUpdate, GraphError>>
-                            + Send,
-                    >,
+                    Box<dyn std::future::Future<Output = Result<StateUpdate, GraphError>> + Send>,
                 > + Send
                 + Sync,
         >,

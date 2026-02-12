@@ -34,9 +34,7 @@ async fn main() {
         .unwrap();
 
     // Add documents to the database
-    let doc1 = Document::new(
-        "oris is a programmable AI execution runtime in Rust.",
-    );
+    let doc1 = Document::new("oris is a programmable AI execution runtime in Rust.");
     let doc2 = Document::new(
         "langchaingo is a port of the langchain python library to go language and was written in 2023."
     );

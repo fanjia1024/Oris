@@ -127,9 +127,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_join_all() {
-        let futures: Vec<_> = (1..=3)
-            .map(|i| async move { Ok::<i32, &str>(i) })
-            .collect();
+        let futures: Vec<_> = (1..=3).map(|i| async move { Ok::<i32, &str>(i) }).collect();
         let results = try_join_all(futures).await.unwrap();
         assert_eq!(results, vec![1, 2, 3]);
     }

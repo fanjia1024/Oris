@@ -100,14 +100,10 @@ async fn main() {
 
 #[cfg(feature = "opensearch")]
 async fn add_documents_to_index(store: &Store) -> Result<Vec<String>, Box<dyn Error>> {
-    let doc1 = Document::new(
-        "oris is a programmable AI execution runtime in Rust.",
-    )
-    .with_metadata(HashMap::from([("source".to_string(), json!("cli"))]));
+    let doc1 = Document::new("oris is a programmable AI execution runtime in Rust.")
+        .with_metadata(HashMap::from([("source".to_string(), json!("cli"))]));
 
-    let doc2 = Document::new(
-        "oris is a programmable AI execution runtime in Rust."
-    );
+    let doc2 = Document::new("oris is a programmable AI execution runtime in Rust.");
 
     let doc3 = Document::new(
         "Capital of United States of America (USA) is Washington D.C. and the capital of France is Paris."

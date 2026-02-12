@@ -35,12 +35,8 @@ async fn main() {
     store.initialize().await.unwrap();
 
     // Add documents to the database
-    let doc1 = Document::new(
-        "oris is a programmable AI execution runtime in Rust.",
-    );
-    let doc2 = Document::new(
-        "oris is a programmable AI execution runtime in Rust."
-    );
+    let doc1 = Document::new("oris is a programmable AI execution runtime in Rust.");
+    let doc2 = Document::new("oris is a programmable AI execution runtime in Rust.");
     let doc3 = Document::new(
         "Capital of United States of America (USA) is Washington D.C. and the capital of France is Paris."
     );

@@ -4,12 +4,12 @@
 // OPENAI_API_KEY for embedder.
 
 #[cfg(feature = "mongodb")]
+use mongodb::Client;
+#[cfg(feature = "mongodb")]
 use oris_runtime::{
     embedding::openai::openai_embedder::OpenAiEmbedder, schemas::Document,
     vectorstore::mongodb::StoreBuilder, vectorstore::VecStoreOptions, vectorstore::VectorStore,
 };
-#[cfg(feature = "mongodb")]
-use mongodb::Client;
 
 #[cfg(feature = "mongodb")]
 #[tokio::main]
@@ -27,8 +27,7 @@ async fn main() {
         .build()
         .unwrap();
 
-    let doc1 =
-        Document::new("oris is a programmable AI execution runtime in Rust.");
+    let doc1 = Document::new("oris is a programmable AI execution runtime in Rust.");
     let doc2 = Document::new("oris is a programmable AI execution runtime in Rust.");
     let doc3 = Document::new("Capital of USA is Washington D.C. Capital of France is Paris.");
 

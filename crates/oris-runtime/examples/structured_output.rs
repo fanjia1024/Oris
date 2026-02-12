@@ -34,11 +34,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Use the agent to extract structured information
     let result = agent
-        .invoke_messages(vec![
-            oris_runtime::schemas::Message::new_human_message(
-                "Extract contact info from: John Doe, [email protected], (555) 123-4567",
-            ),
-        ])
+        .invoke_messages(vec![oris_runtime::schemas::Message::new_human_message(
+            "Extract contact info from: John Doe, [email protected], (555) 123-4567",
+        )])
         .await?;
 
     println!("Agent response: {}", result);
