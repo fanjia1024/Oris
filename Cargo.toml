@@ -13,8 +13,6 @@ keywords = [
     "llm",
     "runtime",
     "graph",
-    "rag",
-    "execution-engine",
 ]
 categories = [
     "development-tools",
