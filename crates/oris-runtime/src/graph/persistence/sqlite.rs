@@ -252,6 +252,7 @@ where
                 metadata,
                 created_at,
                 parent_config,
+                at_seq: None,
             })
         });
 
@@ -347,6 +348,7 @@ where
                 metadata,
                 created_at,
                 parent_config,
+                at_seq: None,
             })
         })?;
 
