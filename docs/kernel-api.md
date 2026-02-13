@@ -82,6 +82,7 @@ Without this, Oris remains a demo framework; with it, enterprise deployment is p
 
 - **Checkpoint / thread_id** — Today’s checkpointer is snapshot-only; kernel adds EventStore and Snapshot with `at_seq`. Existing `thread_id` ↔ RunId.
 - **Interrupt / resume** — Map to events Interrupted / Resumed; StepFn returns Next::Interrupt; driver exposes resume(run_id, signal).
+- **RunStatus** — Standardized status: `Completed`, `Blocked(BlockedInfo)` (interrupt or WaitSignal), `Running` (optional), `Failed { recoverable: bool }` (optional).
 - **Trace (TraceEvent)** — Current trace events (StepCompleted, InterruptReached, ResumeReceived) are a subset of kernel Event types; kernel Event covers also StateUpdated, ActionRequested/Succeeded/Failed, Completed.
 
 ---
@@ -92,7 +93,7 @@ One execution path satisfies “write event → then execute → then write resu
 
 - **Path**: Graph execution with interrupts: `invoke_with_config_interrupt` when the graph is compiled with `.with_event_store(store)`.
 - **RunId**: `thread_id` from checkpoint config.
-- **Events written**: Before execution, any resume values produce `Resumed` events. During execution, per node: `ActionRequested` (action_id = run_id-node, payload = state) → node runs → `ActionSucceeded` (output = state update) or `ActionFailed` (on error); then `StateUpdated` (step_id = node name, payload = serialized state); on interrupt, `Interrupted { value }`; on normal end, `Completed`.
+- **Events written**: Before execution, any resume values produce `Resumed` events. During execution, per node: `ActionRequested` (action_id = run_id-node, payload = state) → node runs → `ActionSucceeded` (output = state update) or `ActionFailed` (on error or on interrupt); then `StateUpdated`; on interrupt, `ActionFailed { error: "Interrupt" }` then `Interrupted { value }` so every ActionRequested is paired; on normal end, `Completed`.
 - **EventStore**: Use `kernel::InMemoryEventStore` (or any `EventStore` implementation). When event_store is set, checkpoints saved at interrupt include `at_seq` (from EventStore head).
 
 ---
@@ -100,5 +101,6 @@ One execution path satisfies “write event → then execute → then write resu
 ## 9. Replay-only mode (Phase 3)
 
 - **`Kernel::replay(run_id, initial_state)`**: Scans all events for the run (from seq 1), applies each with the Reducer in order. Does **not** call ActionExecutor; any ActionRequested is satisfied by the following ActionSucceeded/ActionFailed already in the log (reducer applies them).
+- **`Kernel::replay_from_snapshot(run_id, initial_state)`**: If a snapshot exists for the run, starts from `snap.state` and applies only events with seq > snap.at_seq; otherwise same as replay. Rebuild semantics: state = snap + events(from=at_seq+1).
 - **Use case**: Reproducible state from history, audit, and recovery without re-executing external actions (A3).
-- **Test**: `graph::interrupts::tests::test_replay_reproduces_state` runs a graph with an event store, then replays the same run via `Kernel::replay` and asserts the replayed state equals the run’s final state.
+- **Tests**: `test_replay_reproduces_state` (graph + replay state match); `replay_no_side_effects` (executor 0 calls); `replay_state_equivalence` (same log → same state); `replay_from_snapshot_applies_tail_only`.

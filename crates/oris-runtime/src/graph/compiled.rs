@@ -1194,8 +1194,22 @@ impl<S: State + 'static> CompiledGraph<S> {
                     trace.push(TraceEvent::InterruptReached {
                         value: interrupt_value.clone(),
                     });
-                    // Event-first (2.0): append Interrupted before saving checkpoint
-                    if let Some(es) = event_store {
+                    // Event-first (2.0): pair ActionRequested with ActionFailed(Interrupt) then Interrupted
+                    if let (Some(es), Some(ref aid)) = (event_store, &action_id) {
+                        es.append(
+                            run_id,
+                            &[
+                                Event::ActionFailed {
+                                    action_id: aid.clone(),
+                                    error: "Interrupt".to_string(),
+                                },
+                                Event::Interrupted {
+                                    value: interrupt_value.clone(),
+                                },
+                            ],
+                        )
+                        .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                    } else if let Some(es) = event_store {
                         es.append(
                             run_id,
                             &[Event::Interrupted {

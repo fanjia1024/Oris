@@ -5,18 +5,22 @@ use crate::kernel::event::{Event, EventStore};
 use crate::kernel::identity::{RunId, Seq};
 use crate::kernel::policy::{Policy, PolicyCtx};
 use crate::kernel::reducer::Reducer;
-use crate::kernel::snapshot::SnapshotStore;
+use crate::kernel::snapshot::{Snapshot, SnapshotStore};
 use crate::kernel::state::KernelState;
 use crate::kernel::step::{InterruptInfo, Next, StepFn};
 use crate::kernel::KernelError;
 
-/// Status of a run after run_until_blocked or resume.
+/// Standardized status of a run after run_until_blocked or resume.
 #[derive(Clone, Debug)]
 pub enum RunStatus {
-    /// Run completed.
+    /// Run completed successfully.
     Completed,
-    /// Run is blocked (e.g. on interrupt or WaitSignal).
+    /// Run is blocked (e.g. on interrupt or WaitSignal); can be resumed.
     Blocked(BlockedInfo),
+    /// Run is still advancing (optional; used when yielding before blocking).
+    Running,
+    /// Run failed; recoverable indicates whether resume/retry is possible.
+    Failed { recoverable: bool },
 }
 
 #[derive(Clone, Debug)]
@@ -158,9 +162,38 @@ impl<S: KernelState> Kernel<S> {
     /// Does not call ActionExecutor; any ActionRequested is satisfied by the following
     /// ActionSucceeded/ActionFailed already stored in the log (reducer applies them).
     pub fn replay(&self, run_id: &RunId, initial_state: S) -> Result<S, KernelError> {
+        self.replay_from(run_id, initial_state, None)
+    }
+
+    /// Replays from a snapshot if available, otherwise from initial state.
+    ///
+    /// If `snaps` is set and `load_latest(run_id)` returns a snapshot, state starts at
+    /// `snap.state` and only events with seq > snap.at_seq are applied; otherwise
+    /// starts at `initial_state` and replays from seq 1.
+    pub fn replay_from_snapshot(
+        &self,
+        run_id: &RunId,
+        initial_state: S,
+    ) -> Result<S, KernelError> {
+        let from_snap = self
+            .snaps
+            .as_ref()
+            .and_then(|s| s.load_latest(run_id).ok().flatten());
+        self.replay_from(run_id, initial_state, from_snap.as_ref())
+    }
+
+    fn replay_from(
+        &self,
+        run_id: &RunId,
+        initial_state: S,
+        snapshot: Option<&Snapshot<S>>,
+    ) -> Result<S, KernelError> {
         const FROM_SEQ: Seq = 1;
-        let sequenced = self.events.scan(run_id, FROM_SEQ)?;
-        let mut state = initial_state;
+        let (mut state, from_seq) = match snapshot {
+            Some(snap) => (snap.state.clone(), snap.at_seq + 1),
+            None => (initial_state, FROM_SEQ),
+        };
+        let sequenced = self.events.scan(run_id, from_seq)?;
         for se in sequenced {
             self.reducer.apply(&mut state, &se)?;
         }
@@ -171,17 +204,37 @@ impl<S: KernelState> Kernel<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kernel::action::{Action, ActionExecutor, ActionResult};
+    use crate::kernel::event::Event;
     use crate::kernel::event_store::{InMemoryEventStore, SharedEventStore};
     use crate::kernel::stubs::{AllowAllPolicy, NoopActionExecutor, NoopStepFn};
     use crate::kernel::StateUpdatedOnlyReducer;
     use serde::{Deserialize, Serialize};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
     struct TestState(u32);
     impl KernelState for TestState {
         fn version(&self) -> u32 {
             1
+        }
+    }
+
+    /// Mock executor that counts execute() calls; used to assert replay does not call executor.
+    struct CountingActionExecutor(Arc<AtomicUsize>);
+    impl CountingActionExecutor {
+        fn new(counter: Arc<AtomicUsize>) -> Self {
+            Self(counter)
+        }
+        fn count(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+    impl ActionExecutor for CountingActionExecutor {
+        fn execute(&self, _run_id: &RunId, _action: &Action) -> Result<ActionResult, KernelError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(KernelError::Driver("mock".into()))
         }
     }
 
@@ -239,5 +292,121 @@ mod tests {
         };
         let status2 = k2.resume(&run_id, TestState(0), Signal::Resume(serde_json::json!(1))).unwrap();
         assert!(matches!(status2, RunStatus::Completed));
+    }
+
+    /// Replay must not call ActionExecutor (0 side effects).
+    #[test]
+    fn replay_no_side_effects() {
+        let exec_count = Arc::new(AtomicUsize::new(0));
+        let store = InMemoryEventStore::new();
+        let run_id = "replay-no-effects".to_string();
+        store
+            .append(
+                &run_id,
+                &[
+                    Event::StateUpdated {
+                        step_id: Some("n1".into()),
+                        payload: serde_json::json!(42),
+                    },
+                    Event::Completed,
+                ],
+            )
+            .unwrap();
+        let k = Kernel::<TestState> {
+            events: Box::new(store),
+            snaps: None,
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(CountingActionExecutor::new(Arc::clone(&exec_count))),
+            step: Box::new(NoopStepFn),
+            policy: Box::new(AllowAllPolicy),
+        };
+        let _ = k.replay(&run_id, TestState(0)).unwrap();
+        assert_eq!(exec_count.load(Ordering::SeqCst), 0, "replay must not call executor");
+    }
+
+    /// Same event log and initial state must yield identical state on multiple replays.
+    #[test]
+    fn replay_state_equivalence() {
+        let store = InMemoryEventStore::new();
+        let run_id = "replay-equiv".to_string();
+        store
+            .append(
+                &run_id,
+                &[
+                    Event::StateUpdated {
+                        step_id: Some("a".into()),
+                        payload: serde_json::json!(10),
+                    },
+                    Event::StateUpdated {
+                        step_id: Some("b".into()),
+                        payload: serde_json::json!(20),
+                    },
+                    Event::Completed,
+                ],
+            )
+            .unwrap();
+        let k = Kernel::<TestState> {
+            events: Box::new(SharedEventStore(Arc::new(store))),
+            snaps: None,
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(NoopActionExecutor),
+            step: Box::new(NoopStepFn),
+            policy: Box::new(AllowAllPolicy),
+        };
+        let initial = TestState(0);
+        let s1 = k.replay(&run_id, initial.clone()).unwrap();
+        let s2 = k.replay(&run_id, initial).unwrap();
+        assert_eq!(s1, s2, "same log and initial state must yield equal state");
+        assert_eq!(s1.0, 20);
+    }
+
+    /// Replay from snapshot applies only events after at_seq.
+    #[test]
+    fn replay_from_snapshot_applies_tail_only() {
+        use crate::kernel::InMemorySnapshotStore;
+        use crate::kernel::Snapshot;
+
+        let store = InMemoryEventStore::new();
+        let run_id = "replay-snap".to_string();
+        store
+            .append(
+                &run_id,
+                &[
+                    Event::StateUpdated {
+                        step_id: Some("a".into()),
+                        payload: serde_json::json!(10),
+                    },
+                    Event::StateUpdated {
+                        step_id: Some("b".into()),
+                        payload: serde_json::json!(20),
+                    },
+                    Event::StateUpdated {
+                        step_id: Some("c".into()),
+                        payload: serde_json::json!(30),
+                    },
+                    Event::Completed,
+                ],
+            )
+            .unwrap();
+        let snaps = InMemorySnapshotStore::new();
+        snaps
+            .save(&Snapshot {
+                run_id: run_id.clone(),
+                at_seq: 2,
+                state: TestState(20),
+            })
+            .unwrap();
+        let k = Kernel::<TestState> {
+            events: Box::new(store),
+            snaps: Some(Box::new(snaps)),
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(NoopActionExecutor),
+            step: Box::new(NoopStepFn),
+            policy: Box::new(AllowAllPolicy),
+        };
+        let state = k
+            .replay_from_snapshot(&run_id, TestState(0))
+            .unwrap();
+        assert_eq!(state.0, 30, "only events after at_seq=2 (seq 3) applied");
     }
 }
