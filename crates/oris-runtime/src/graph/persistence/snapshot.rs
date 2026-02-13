@@ -12,6 +12,8 @@ use super::config::CheckpointConfig;
 ///
 /// Similar to Python's StateSnapshot, this contains the state values,
 /// next nodes to execute, configuration, and metadata.
+/// When event-first execution is used (kernel EventStore), `at_seq` is the event
+/// sequence number up to which state has been projected (for replay: load snapshot, then replay events after at_seq).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "S: Serialize + serde::de::DeserializeOwned")]
 pub struct StateSnapshot<S: State> {
@@ -27,6 +29,9 @@ pub struct StateSnapshot<S: State> {
     pub created_at: DateTime<Utc>,
     /// Parent checkpoint configuration (for forking/replay)
     pub parent_config: Option<CheckpointConfig>,
+    /// When set: event seq up to which state was projected (kernel event log alignment).
+    #[serde(default)]
+    pub at_seq: Option<u64>,
 }
 
 impl<S: State> StateSnapshot<S> {
@@ -39,6 +44,7 @@ impl<S: State> StateSnapshot<S> {
             metadata: HashMap::new(),
             created_at: Utc::now(),
             parent_config: None,
+            at_seq: None,
         }
     }
 
@@ -56,6 +62,7 @@ impl<S: State> StateSnapshot<S> {
             metadata,
             created_at: Utc::now(),
             parent_config: None,
+            at_seq: None,
         }
     }
 
@@ -73,7 +80,14 @@ impl<S: State> StateSnapshot<S> {
             metadata: HashMap::new(),
             created_at: Utc::now(),
             parent_config: Some(parent_config),
+            at_seq: None,
         }
+    }
+
+    /// Set the event sequence number (kernel event log alignment). Use when event_store is set.
+    pub fn with_at_seq(mut self, at_seq: u64) -> Self {
+        self.at_seq = Some(at_seq);
+        self
     }
 
     /// Get the checkpoint ID

@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::graph::{
         error::GraphError,
         function_node,
@@ -10,6 +12,10 @@ mod tests {
         persistence::{InMemorySaver, RunnableConfig},
         state::MessagesState,
         StateGraph, END, START,
+    };
+    use crate::kernel::{
+        AllowAllPolicy, Kernel, NoopActionExecutor, NoopStepFn, SharedEventStore,
+        StateUpdatedOnlyReducer,
     };
 
     #[tokio::test]
@@ -94,5 +100,72 @@ mod tests {
 
         assert!(!resumed.has_interrupt());
         assert_eq!(resumed.state.messages.len(), 1);
+    }
+
+    /// Phase 3: replay reproduces final state from event log without external calls.
+    #[tokio::test]
+    async fn test_replay_reproduces_state() {
+        use crate::graph::interrupts::state_or_command::StateOrCommand;
+        use crate::schemas::messages::Message;
+
+        let node = function_node("n1", |state: &MessagesState| {
+            let msgs = state.messages.clone();
+            async move {
+                let mut msgs = msgs;
+                msgs.push(Message::new_ai_message("done"));
+                let mut update = std::collections::HashMap::new();
+                update.insert(
+                    "messages".to_string(),
+                    serde_json::to_value(msgs).unwrap(),
+                );
+                Ok(update)
+            }
+        });
+
+        let mut graph = StateGraph::<MessagesState>::new();
+        graph.add_node("n1", node).unwrap();
+        graph.add_edge(START, "n1");
+        graph.add_edge("n1", END);
+
+        let inner = Arc::new(crate::kernel::InMemoryEventStore::new());
+        let store_for_graph: Arc<dyn crate::kernel::EventStore> =
+            Arc::new(SharedEventStore(inner.clone()));
+        let checkpointer = Arc::new(InMemorySaver::new());
+        let compiled = graph
+            .compile_with_persistence(Some(checkpointer), None)
+            .unwrap()
+            .with_event_store(store_for_graph);
+
+        let run_id = "replay-test-thread".to_string();
+        let config = RunnableConfig::with_thread_id(run_id.clone());
+        let initial_state = MessagesState::new();
+
+        let result = compiled
+            .invoke_with_config_interrupt(StateOrCommand::State(initial_state.clone()), &config)
+            .await
+            .unwrap();
+        assert!(!result.has_interrupt());
+        let final_state = result.state;
+
+        let kernel = Kernel::<MessagesState> {
+            events: Box::new(SharedEventStore(inner)),
+            snaps: None,
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(NoopActionExecutor),
+            step: Box::new(NoopStepFn),
+            policy: Box::new(AllowAllPolicy),
+        };
+        let replayed = kernel
+            .replay(&run_id, initial_state)
+            .expect("replay should succeed");
+        assert_eq!(
+            replayed.messages.len(),
+            final_state.messages.len(),
+            "replay should reproduce final state"
+        );
+        assert_eq!(
+            replayed.messages.last().map(|m| m.content.as_str()),
+            Some("done")
+        );
     }
 }

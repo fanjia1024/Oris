@@ -5,6 +5,8 @@ use std::sync::Arc;
 use async_stream::stream;
 use futures::Stream;
 
+use crate::kernel::{Event, EventStore};
+
 use super::{
     edge::{Edge, END, START},
     error::GraphError,
@@ -39,6 +41,8 @@ pub struct CompiledGraph<S: State> {
     adjacency: HashMap<String, Vec<Edge<S>>>,
     checkpointer: Option<CheckpointerBox<S>>,
     store: Option<StoreBox>,
+    /// Optional kernel EventStore for event-first execution (2.0 pilot).
+    event_store: Option<Arc<dyn EventStore>>,
 }
 
 impl<S: State + 'static> CompiledGraph<S> {
@@ -80,6 +84,7 @@ impl<S: State + 'static> CompiledGraph<S> {
             adjacency,
             checkpointer: None,
             store: None,
+            event_store: None,
         })
     }
 
@@ -95,7 +100,18 @@ impl<S: State + 'static> CompiledGraph<S> {
             adjacency,
             checkpointer,
             store,
+            event_store: None,
         })
+    }
+
+    /// Attach a kernel EventStore for event-first execution (2.0 pilot).
+    /// When set, the interrupt execution path will append kernel events
+    /// (StateUpdated, Interrupted, Resumed, Completed) to this store.
+    pub fn with_event_store(self, event_store: Arc<dyn EventStore>) -> Self {
+        Self {
+            event_store: Some(event_store),
+            ..self
+        }
     }
 
     /// Invoke the graph with initial state
@@ -989,6 +1005,14 @@ impl<S: State + 'static> CompiledGraph<S> {
             trace.push(TraceEvent::ResumeReceived { value: v.clone() });
         }
 
+        // Event-first (2.0): append Resumed events when resuming
+        if let Some(es) = &self.event_store {
+            for v in &resume_values {
+                es.append(thread_id, &[Event::Resumed { value: v.clone() }])
+                    .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+            }
+        }
+
         // Set up interrupt context with resume values
         let interrupt_ctx = if resume_values.is_empty() {
             InterruptContext::new()
@@ -1022,6 +1046,8 @@ impl<S: State + 'static> CompiledGraph<S> {
                 Some(&runnable_config),
                 self.store.clone(),
                 &mut trace,
+                self.event_store.as_ref(),
+                &checkpoint_config.thread_id,
             )
             .await
         })
@@ -1042,6 +1068,8 @@ impl<S: State + 'static> CompiledGraph<S> {
         config: Option<&RunnableConfig>,
         store: Option<StoreBox>,
         trace: &mut Vec<TraceEvent>,
+        event_store: Option<&Arc<dyn EventStore>>,
+        run_id: &String,
     ) -> Result<InvokeResult<S>, GraphError> {
         let mut current_state = initial_state;
         let mut current_node = START.to_string();
@@ -1058,6 +1086,10 @@ impl<S: State + 'static> CompiledGraph<S> {
             iterations += 1;
 
             if current_node == END {
+                if let Some(es) = event_store {
+                    es.append(run_id, &[Event::Completed])
+                        .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                }
                 return Ok(InvokeResult::new_with_trace(
                     current_state,
                     std::mem::take(trace),
@@ -1097,6 +1129,25 @@ impl<S: State + 'static> CompiledGraph<S> {
                 .get(&current_node)
                 .ok_or_else(|| GraphError::NodeNotFound(current_node.clone()))?;
 
+            // Event-first (2.0): append ActionRequested before node execution (node step as action)
+            let action_id = if event_store.is_some() {
+                Some(format!("{}-{}", run_id, current_node))
+            } else {
+                None
+            };
+            if let (Some(es), Some(ref aid)) = (event_store, &action_id) {
+                let payload = serde_json::to_value(&current_state)
+                    .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                es.append(
+                    run_id,
+                    &[Event::ActionRequested {
+                        action_id: aid.clone(),
+                        payload,
+                    }],
+                )
+                .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+            }
+
             // Execute node and handle interrupts
             // Use invoke_with_context to support config and store
             let update_result = node
@@ -1105,11 +1156,37 @@ impl<S: State + 'static> CompiledGraph<S> {
 
             match update_result {
                 Ok(update) => {
+                    // Event-first (2.0): append ActionSucceeded after node success
+                    if let (Some(es), Some(ref aid)) = (event_store, &action_id) {
+                        let output = serde_json::to_value(&update)
+                            .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                        es.append(
+                            run_id,
+                            &[Event::ActionSucceeded {
+                                action_id: aid.clone(),
+                                output,
+                            }],
+                        )
+                        .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                    }
                     // Node executed successfully, merge state
                     trace.push(TraceEvent::StepCompleted {
                         node: current_node.clone(),
                     });
                     current_state = self.merge_state_update(&current_state, &update)?;
+                    // Event-first (2.0): append StateUpdated after each node
+                    if let Some(es) = event_store {
+                        let payload = serde_json::to_value(&current_state)
+                            .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                        es.append(
+                            run_id,
+                            &[Event::StateUpdated {
+                                step_id: Some(current_node.clone()),
+                                payload,
+                            }],
+                        )
+                        .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                    }
                 }
                 Err(GraphError::InterruptError(interrupt_err)) => {
                     // Interrupt occurred - save checkpoint and return
@@ -1117,12 +1194,22 @@ impl<S: State + 'static> CompiledGraph<S> {
                     trace.push(TraceEvent::InterruptReached {
                         value: interrupt_value.clone(),
                     });
+                    // Event-first (2.0): append Interrupted before saving checkpoint
+                    if let Some(es) = event_store {
+                        es.append(
+                            run_id,
+                            &[Event::Interrupted {
+                                value: interrupt_value.clone(),
+                            }],
+                        )
+                        .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                    }
                     let interrupt = Interrupt::new(interrupt_value);
 
                     // Save checkpoint at interrupt point
                     // Note: checkpointer should always be available when using interrupt support
                     // (checked in invoke_with_config_interrupt)
-                    let snapshot = if let Some(parent) = parent_config {
+                    let mut snapshot = if let Some(parent) = parent_config {
                         // Create snapshot with parent config for fork tracking
                         StateSnapshot::with_parent(
                             current_state.clone(),
@@ -1137,6 +1224,12 @@ impl<S: State + 'static> CompiledGraph<S> {
                             checkpoint_config.clone(),
                         )
                     };
+                    if let Some(es) = event_store {
+                        let seq = es
+                            .head(run_id)
+                            .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                        snapshot = snapshot.with_at_seq(seq);
+                    }
                     if let Some(checkpointer) = &self.checkpointer {
                         checkpointer
                             .put(checkpoint_config.thread_id.as_str(), &snapshot)
@@ -1156,7 +1249,16 @@ impl<S: State + 'static> CompiledGraph<S> {
                     ));
                 }
                 Err(e) => {
-                    // Other error
+                    // Event-first (2.0): append ActionFailed on node execution error
+                    if let (Some(es), Some(ref aid)) = (event_store, &action_id) {
+                        let _ = es.append(
+                            run_id,
+                            &[Event::ActionFailed {
+                                action_id: aid.clone(),
+                                error: e.to_string(),
+                            }],
+                        );
+                    }
                     return Err(e);
                 }
             }
@@ -1173,6 +1275,10 @@ impl<S: State + 'static> CompiledGraph<S> {
             let next_node = edge.get_target(&current_state).await?;
 
             if next_node == END {
+                if let Some(es) = event_store {
+                    es.append(run_id, &[Event::Completed])
+                        .map_err(|e| GraphError::ExecutionError(e.to_string()))?;
+                }
                 return Ok(InvokeResult::new_with_trace(
                     current_state,
                     std::mem::take(trace),

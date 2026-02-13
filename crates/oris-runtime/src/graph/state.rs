@@ -4,6 +4,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::kernel::state::KernelState;
 use crate::schemas::messages::Message;
 
 /// Trait for state types used in LangGraph
@@ -64,6 +65,12 @@ impl State for MessagesState {
         let mut messages = self.messages.clone();
         messages.extend(other.messages.clone());
         Self { messages }
+    }
+}
+
+impl KernelState for MessagesState {
+    fn version(&self) -> u32 {
+        1
     }
 }
 

@@ -63,6 +63,8 @@ pub mod embedding;
 pub mod error;
 /// Graph: state graphs, streaming, persistence, subgraphs, interrupts. **Stable API.**
 pub mod graph;
+/// Kernel API (2.0): event log, snapshot, reducer, action, step, policy, driver. Reserved for 2.0.
+pub mod kernel;
 /// Common LLM/embedding traits and config.
 pub mod language_models;
 /// LLM implementations: OpenAI, Claude, Ollama, Mistral, etc. (feature-gated).
