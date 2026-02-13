@@ -58,6 +58,8 @@ It is an **execution problem**.
 
 Oris is an attempt to build the execution layer for software that *thinks before it acts*.
 
+**Positioning:** Oris is the execution kernel for reasoning processes: durable, interruptible, and replayable by design. Unlike generic workflow engines (e.g. Temporal), Oris models *reasoning*—multi-step, non-deterministic decisions involving LLMs and tools—as a first-class execution model with its own state, interrupt, and replay semantics. See [Oris 2.0 Strategy & Evolution Blueprint](docs/ORIS_2.0_STRATEGY.md) for architecture, axioms, and roadmap.
+
 ---
 
 ## Mental model
@@ -172,7 +174,7 @@ The following modules are the **stable surface** for building on Oris. Prefer th
 
 | Entry | Purpose |
 |-------|---------|
-| `oris_runtime::graph` | State graphs, execution, persistence, interrupts (`StateGraph`, `MessagesState`, checkpointer, `interrupt`/resume) |
+| `oris_runtime::graph` | State graphs, execution, persistence, interrupts, trace (`StateGraph`, `MessagesState`, checkpointer, `interrupt`/resume, `InvokeResult.trace`, `TraceEvent`) |
 | `oris_runtime::agent` | Agent loop, tools, Deep Agent (planning, skills) |
 | `oris_runtime::tools` | Tool trait and built-in tools |
 
@@ -184,9 +186,13 @@ State types (e.g. `graph::MessagesState`, `graph::State`) are part of the stable
 cargo add oris-runtime
 # With a vector store (e.g. PostgreSQL):
 cargo add oris-runtime --features postgres
+# With SQLite persistence (production-ready checkpoints):
+cargo add oris-runtime --features sqlite-persistence
 # With Ollama (local):
 cargo add oris-runtime --features ollama
 ```
+
+For durable execution across process restarts, use the `sqlite-persistence` feature and see the [durable_agent_job_sqlite](crates/oris-runtime/examples/durable_agent_job_sqlite.rs) example.
 
 Common environment variables:
 
@@ -200,6 +206,8 @@ Common environment variables:
 
 - [Hello World graph](crates/oris-runtime/examples/graph_hello_world.rs)
 - [Durable agent job](crates/oris-runtime/examples/durable_agent_job.rs) — interrupt, restart, resume with same `thread_id`; state is checkpointed so it survives process restarts.
+- [Durable agent job with SQLite](crates/oris-runtime/examples/durable_agent_job_sqlite.rs) — same flow with SQLite persistence (run with `--features sqlite-persistence`).
+- [CLI durable job](crates/oris-runtime/examples/cli_durable_job.rs) — minimal operator CLI: `run`, `list`, `resume` (requires `--features sqlite-persistence`).
 - [Agent with tools](crates/oris-runtime/examples/agent.rs)
 - [Streaming](crates/oris-runtime/examples/graph_streaming.rs)
 - [Persistence](crates/oris-runtime/examples/graph_persistence_basic.rs)

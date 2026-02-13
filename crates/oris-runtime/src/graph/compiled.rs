@@ -14,6 +14,7 @@ use super::{
     interrupts::{
         set_interrupt_context, Interrupt, InterruptContext, InvokeResult, StateOrCommand,
     },
+    trace::TraceEvent,
     node::Node,
     persistence::{
         checkpointer::CheckpointerBox,
@@ -869,16 +870,8 @@ impl<S: State + 'static> CompiledGraph<S> {
         let state_or_command = match initial_state {
             Some(state) => StateOrCommand::State(state),
             None => {
-                // None input - check if we have a checkpoint_id to resume from
+                // None input - load from checkpoint (by checkpoint_id or latest for crash recovery)
                 let checkpoint_config = CheckpointConfig::from_config(config)?;
-                if checkpoint_config.checkpoint_id.is_none() {
-                    return Err(GraphError::ExecutionError(
-                        "Cannot resume: initial_state is None but no checkpoint_id provided"
-                            .to_string(),
-                    ));
-                }
-                // Convert to StateOrCommand::State by loading from checkpoint
-                // This will be handled in invoke_with_config_interrupt
                 let checkpointer = self.checkpointer.as_ref().ok_or_else(|| {
                     GraphError::ExecutionError(
                         "Checkpointer is required to resume from checkpoint".to_string(),
@@ -895,8 +888,8 @@ impl<S: State + 'static> CompiledGraph<S> {
                     })?;
                 let snapshot = snapshot.ok_or_else(|| {
                     GraphError::ExecutionError(format!(
-                        "Checkpoint not found: {:?}",
-                        checkpoint_config.checkpoint_id
+                        "No checkpoint found for thread_id: {}",
+                        checkpoint_config.thread_id
                     ))
                 })?;
                 StateOrCommand::State(snapshot.values)
@@ -990,6 +983,12 @@ impl<S: State + 'static> CompiledGraph<S> {
             }
         };
 
+        // Build trace: push ResumeReceived when resuming with values (before moving resume_values)
+        let mut trace = Vec::new();
+        for v in &resume_values {
+            trace.push(TraceEvent::ResumeReceived { value: v.clone() });
+        }
+
         // Set up interrupt context with resume values
         let interrupt_ctx = if resume_values.is_empty() {
             InterruptContext::new()
@@ -1022,6 +1021,7 @@ impl<S: State + 'static> CompiledGraph<S> {
                 parent_config.as_ref(),
                 Some(&runnable_config),
                 self.store.clone(),
+                &mut trace,
             )
             .await
         })
@@ -1033,6 +1033,7 @@ impl<S: State + 'static> CompiledGraph<S> {
     /// Execute graph with interrupt support
     ///
     /// Internal method that executes the graph and handles interrupts.
+    /// Fills `trace` with StepCompleted, InterruptReached events.
     async fn execute_with_interrupt_support(
         &self,
         initial_state: S,
@@ -1040,6 +1041,7 @@ impl<S: State + 'static> CompiledGraph<S> {
         parent_config: Option<&CheckpointConfig>,
         config: Option<&RunnableConfig>,
         store: Option<StoreBox>,
+        trace: &mut Vec<TraceEvent>,
     ) -> Result<InvokeResult<S>, GraphError> {
         let mut current_state = initial_state;
         let mut current_node = START.to_string();
@@ -1056,7 +1058,10 @@ impl<S: State + 'static> CompiledGraph<S> {
             iterations += 1;
 
             if current_node == END {
-                return Ok(InvokeResult::new(current_state));
+                return Ok(InvokeResult::new_with_trace(
+                    current_state,
+                    std::mem::take(trace),
+                ));
             }
 
             if !visited.contains(&current_node) {
@@ -1101,11 +1106,17 @@ impl<S: State + 'static> CompiledGraph<S> {
             match update_result {
                 Ok(update) => {
                     // Node executed successfully, merge state
+                    trace.push(TraceEvent::StepCompleted {
+                        node: current_node.clone(),
+                    });
                     current_state = self.merge_state_update(&current_state, &update)?;
                 }
                 Err(GraphError::InterruptError(interrupt_err)) => {
                     // Interrupt occurred - save checkpoint and return
                     let interrupt_value = interrupt_err.value().clone();
+                    trace.push(TraceEvent::InterruptReached {
+                        value: interrupt_value.clone(),
+                    });
                     let interrupt = Interrupt::new(interrupt_value);
 
                     // Save checkpoint at interrupt point
@@ -1138,7 +1149,11 @@ impl<S: State + 'static> CompiledGraph<S> {
                             })?;
                     }
 
-                    return Ok(InvokeResult::with_interrupt(current_state, vec![interrupt]));
+                    return Ok(InvokeResult::with_interrupt_and_trace(
+                        current_state,
+                        vec![interrupt],
+                        std::mem::take(trace),
+                    ));
                 }
                 Err(e) => {
                     // Other error
@@ -1158,7 +1173,10 @@ impl<S: State + 'static> CompiledGraph<S> {
             let next_node = edge.get_target(&current_state).await?;
 
             if next_node == END {
-                return Ok(InvokeResult::new(current_state));
+                return Ok(InvokeResult::new_with_trace(
+                    current_state,
+                    std::mem::take(trace),
+                ));
             }
 
             current_node = next_node;
@@ -1187,8 +1205,8 @@ impl<S: State + 'static> CompiledGraph<S> {
         let checkpoint_config = CheckpointConfig::from_config(config)?;
         let thread_id = &checkpoint_config.thread_id;
 
-        // Determine current state: from input, checkpoint, or error
-        let current_state = match initial_state {
+        // Determine current state and parent_config: from input, checkpoint (by id or latest), or error
+        let (current_state, parent_config) = match initial_state {
             Some(state) => {
                 // If checkpoint_id is provided, it takes precedence (time-travel)
                 if let Some(checkpoint_id) = &checkpoint_config.checkpoint_id {
@@ -1203,65 +1221,67 @@ impl<S: State + 'static> CompiledGraph<S> {
                                 ))
                             })?;
 
-                        snapshot
-                            .ok_or_else(|| {
-                                GraphError::ExecutionError(format!(
-                                    "Checkpoint not found: {}",
-                                    checkpoint_id
-                                ))
-                            })?
-                            .values
+                        let snapshot = snapshot.ok_or_else(|| {
+                            GraphError::ExecutionError(format!(
+                                "Checkpoint not found: {}",
+                                checkpoint_id
+                            ))
+                        })?;
+                        (snapshot.values, Some(checkpoint_config.clone()))
                     } else {
                         return Err(GraphError::ExecutionError(
                             "Checkpointer not configured but checkpoint_id provided".to_string(),
                         ));
                     }
                 } else {
-                    state
+                    (state, None)
                 }
             }
             None => {
-                // None input - must have checkpoint_id to resume
-                if let Some(checkpoint_id) = &checkpoint_config.checkpoint_id {
-                    if let Some(checkpointer) = &self.checkpointer {
-                        let snapshot = checkpointer
-                            .get(thread_id, Some(checkpoint_id))
-                            .await
-                            .map_err(|e| {
-                                GraphError::ExecutionError(format!(
-                                    "Failed to load checkpoint: {}",
-                                    e
-                                ))
-                            })?;
+                // Resume from checkpoint: either by checkpoint_id or from latest (crash recovery)
+                let checkpointer = self.checkpointer.as_ref().ok_or_else(|| {
+                    GraphError::ExecutionError(
+                        "Checkpointer is required to resume from checkpoint".to_string(),
+                    )
+                })?;
 
-                        snapshot
-                            .ok_or_else(|| {
-                                GraphError::ExecutionError(format!(
-                                    "Checkpoint not found: {}",
-                                    checkpoint_id
-                                ))
-                            })?
-                            .values
-                    } else {
-                        return Err(GraphError::ExecutionError(
-                            "Checkpointer is required to resume from checkpoint".to_string(),
-                        ));
-                    }
+                let snapshot = if let Some(checkpoint_id) = &checkpoint_config.checkpoint_id {
+                    checkpointer
+                        .get(thread_id, Some(checkpoint_id))
+                        .await
+                        .map_err(|e| {
+                            GraphError::ExecutionError(format!(
+                                "Failed to load checkpoint: {}",
+                                e
+                            ))
+                        })?
+                        .ok_or_else(|| {
+                            GraphError::ExecutionError(format!(
+                                "Checkpoint not found: {}",
+                                checkpoint_id
+                            ))
+                        })?
                 } else {
-                    return Err(GraphError::ExecutionError(
-                        "Cannot resume: initial_state is None but no checkpoint_id provided"
-                            .to_string(),
-                    ));
-                }
-            }
-        };
+                    // Resume from latest checkpoint (e.g. after process crash)
+                    checkpointer
+                        .get(thread_id, None)
+                        .await
+                        .map_err(|e| {
+                            GraphError::ExecutionError(format!(
+                                "Failed to load latest checkpoint: {}",
+                                e
+                            ))
+                        })?
+                        .ok_or_else(|| {
+                            GraphError::ExecutionError(format!(
+                                "No checkpoint found for thread_id: {}",
+                                thread_id
+                            ))
+                        })?
+                };
 
-        // Determine parent config if we're resuming from a checkpoint
-        let parent_config = if checkpoint_config.checkpoint_id.is_some() {
-            // We're resuming from a checkpoint, so record it as parent
-            Some(checkpoint_config.clone())
-        } else {
-            None
+                (snapshot.values.clone(), Some(snapshot.config.clone()))
+            }
         };
 
         // Use super-step executor for parallel execution

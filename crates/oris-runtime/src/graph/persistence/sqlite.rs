@@ -363,13 +363,13 @@ where
 mod tests {
     use super::*;
     use crate::graph::state::MessagesState;
+    use crate::schemas::messages::Message;
     use std::fs;
 
     #[tokio::test]
     #[ignore = "SqliteSaver::new blocks; cannot run inside tokio runtime"]
-    async fn test_sqlite_saver() {
+    async fn test_sqlite_saver_file() {
         let db_path = "test_checkpoints.db";
-        // Remove if exists
         let _ = fs::remove_file(db_path);
 
         let saver = SqliteSaver::<MessagesState>::new(db_path).unwrap();
@@ -388,7 +388,65 @@ mod tests {
         let list = saver.list("thread-1", None).await.unwrap();
         assert_eq!(list.len(), 1);
 
-        // Clean up
         let _ = fs::remove_file(db_path);
+    }
+
+    /// Put, get latest, get by id, list. Run with: cargo test -p oris-runtime --features sqlite-persistence -- --ignored
+    #[tokio::test]
+    #[ignore = "SQLite uses blocking I/O; run with --ignored"]
+    async fn test_sqlite_saver_put_get_list() {
+        let saver = SqliteSaver::<MessagesState>::new_in_memory().unwrap();
+        let state = MessagesState::with_messages(vec![Message::new_ai_message("hello")]);
+        let config = CheckpointConfig::new("thread-sqlite");
+        let snapshot = StateSnapshot::new(state, vec!["node1".to_string()], config);
+
+        let id1 = saver.put("thread-sqlite", &snapshot).await.unwrap();
+        assert!(!id1.is_empty());
+
+        let latest = saver.get("thread-sqlite", None).await.unwrap();
+        assert!(latest.is_some());
+        assert_eq!(latest.as_ref().unwrap().thread_id(), "thread-sqlite");
+        assert_eq!(latest.unwrap().config.checkpoint_id.as_deref(), Some(id1.as_str()));
+
+        let by_id = saver.get("thread-sqlite", Some(&id1)).await.unwrap();
+        assert!(by_id.is_some());
+
+        let list = saver.list("thread-sqlite", None).await.unwrap();
+        assert_eq!(list.len(), 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "SQLite uses blocking I/O; run with --ignored"]
+    async fn test_sqlite_saver_multiple_checkpoints_and_get_by_id() {
+        let saver = SqliteSaver::<MessagesState>::new_in_memory().unwrap();
+        let config = CheckpointConfig::new("thread-multi");
+
+        let snap1 = StateSnapshot::new(
+            MessagesState::with_messages(vec![Message::new_ai_message("one")]),
+            vec!["node2".to_string()],
+            config.clone(),
+        );
+        let id1 = saver.put("thread-multi", &snap1).await.unwrap();
+
+        let mut config2 = config.clone();
+        config2.checkpoint_id = Some(id1.clone());
+        let snap2 = StateSnapshot::new(
+            MessagesState::with_messages(vec![
+                Message::new_ai_message("one"),
+                Message::new_ai_message("two"),
+            ]),
+            vec!["END".to_string()],
+            config2,
+        );
+        let id2 = saver.put("thread-multi", &snap2).await.unwrap();
+
+        let list = saver.list("thread-multi", None).await.unwrap();
+        assert_eq!(list.len(), 2);
+
+        let latest = saver.get("thread-multi", None).await.unwrap().unwrap();
+        assert_eq!(latest.config.checkpoint_id.as_deref(), Some(id2.as_str()));
+
+        let first = saver.get("thread-multi", Some(&id1)).await.unwrap().unwrap();
+        assert_eq!(first.values.messages.len(), 1);
     }
 }

@@ -4,9 +4,56 @@ mod time_travel_tests {
         function_node,
         persistence::{InMemorySaver, RunnableConfig},
         state::MessagesState,
-        StateGraph, END, START,
+        DurabilityMode, StateGraph, END, START,
     };
     use std::collections::HashMap;
+
+    /// Resume from latest checkpoint (crash recovery): no checkpoint_id, only thread_id.
+    #[tokio::test]
+    async fn test_resume_from_latest_checkpoint() {
+        let node1 = function_node("node1", |_state: &MessagesState| async move {
+            let mut update = HashMap::new();
+            update.insert(
+                "messages".to_string(),
+                serde_json::to_value(vec![crate::schemas::messages::Message::new_ai_message(
+                    "Node1",
+                )])?,
+            );
+            Ok(update)
+        });
+
+        let mut graph = StateGraph::<MessagesState>::new();
+        graph.add_node("node1", node1).unwrap();
+        graph.add_edge(START, "node1");
+        graph.add_edge("node1", END);
+
+        let checkpointer = std::sync::Arc::new(InMemorySaver::new());
+        let compiled = graph
+            .compile_with_persistence(Some(checkpointer), None)
+            .unwrap();
+
+        let config = RunnableConfig::with_thread_id("crash-recovery-thread");
+        let initial_state = MessagesState::new();
+
+        // First run: execute to completion (creates checkpoints)
+        let first = compiled
+            .invoke_with_config_and_mode(
+                Some(initial_state.clone()),
+                &config,
+                DurabilityMode::Sync,
+            )
+            .await
+            .unwrap();
+        assert!(!first.messages.is_empty());
+
+        // Simulate crash: second "process" resumes with same thread_id, no state, no checkpoint_id
+        let resumed = compiled
+            .invoke_with_config_and_mode(None, &config, DurabilityMode::Sync)
+            .await
+            .unwrap();
+        // Resume from latest loads checkpoint and continues; we get a valid outcome
+        assert!(!resumed.messages.is_empty());
+    }
 
     #[tokio::test]
     #[ignore = "get_state_history can return empty depending on checkpointer behavior"]

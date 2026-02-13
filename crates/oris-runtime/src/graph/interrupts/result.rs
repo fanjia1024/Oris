@@ -1,35 +1,63 @@
 use serde_json::Value;
 
 use crate::graph::state::State;
+use crate::graph::trace::TraceEvent;
 
 use super::types::Interrupt;
 
-/// Result of graph invocation that may contain interrupt information
+/// Result of graph invocation that may contain interrupt information and execution trace.
 ///
 /// When an interrupt occurs, the result includes the `__interrupt__` field
-/// containing information about the interrupt.
+/// containing information about the interrupt. The `trace` field exposes
+/// step, interrupt, and resume events for debugging and audit.
 #[derive(Debug, Clone)]
 pub struct InvokeResult<S: State> {
     /// The final state (or state at interrupt point)
     pub state: S,
     /// Interrupt information (if an interrupt occurred)
     pub interrupt: Option<Vec<Interrupt>>,
+    /// Execution trace: steps completed, interrupts reached, resume values received.
+    pub trace: Vec<TraceEvent>,
 }
 
 impl<S: State> InvokeResult<S> {
-    /// Create a new InvokeResult with state only
+    /// Create a new InvokeResult with state only (empty trace).
     pub fn new(state: S) -> Self {
         Self {
             state,
             interrupt: None,
+            trace: Vec::new(),
         }
     }
 
-    /// Create a new InvokeResult with interrupt information
+    /// Create a new InvokeResult with interrupt information (empty trace).
     pub fn with_interrupt(state: S, interrupt: Vec<Interrupt>) -> Self {
         Self {
             state,
             interrupt: Some(interrupt),
+            trace: Vec::new(),
+        }
+    }
+
+    /// Create with state and trace (no interrupt).
+    pub fn new_with_trace(state: S, trace: Vec<TraceEvent>) -> Self {
+        Self {
+            state,
+            interrupt: None,
+            trace,
+        }
+    }
+
+    /// Create with state, interrupt, and trace.
+    pub fn with_interrupt_and_trace(
+        state: S,
+        interrupt: Vec<Interrupt>,
+        trace: Vec<TraceEvent>,
+    ) -> Self {
+        Self {
+            state,
+            interrupt: Some(interrupt),
+            trace,
         }
     }
 

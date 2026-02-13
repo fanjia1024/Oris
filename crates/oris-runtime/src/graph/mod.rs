@@ -9,6 +9,7 @@ mod persistence;
 mod state;
 mod streaming;
 pub mod task;
+pub mod trace;
 
 pub use compiled::*;
 pub use edge::*;
@@ -23,3 +24,4 @@ pub use interrupts::*;
 pub use persistence::*;
 pub use streaming::*;
 pub use task::*;
+pub use trace::*;
