@@ -66,13 +66,17 @@ All non-deterministic inputs must go through **Action** and be recorded as event
 - **In scope**: LLM responses, tool I/O, wall-clock time, random numbers, external signals (e.g. human approval). These must be performed as Actions and produce **ActionRequested** → **ActionSucceeded** or **ActionFailed**.
 - **Replay**: When rebuilding state from the event log (or from a snapshot + tail events), the kernel only applies stored events; it does **not** invoke ActionExecutor. Thus replay is deterministic and has no side effects.
 
+### 4.2 Kernel-driven graph (step_once / GraphStepFnAdapter)
+
+For replay to stay deterministic and side-effect-free, **nodes executed via `step_once` must not perform external I/O**. Any LLM, tool call, wall-clock time, or random input must go through the kernel’s **Action** channel: the StepFn returns `Next::Do(Action)` and the driver records ActionRequested → ActionSucceeded or ActionFailed. Nodes that only do pure state updates are safe. Nodes that today call external services should be refactored to emit actions, or `step_once` should be used only for “pure” subgraphs.
+
 ---
 
 ## 5. Policy (governance)
 
 - The kernel must have a **Policy** layer (even if a minimal implementation).
 - **authorize(run_id, action, ctx)** — Decide whether the action is allowed.
-- **retry_strategy(error, action)** / **retry_strategy_attempt(error, action, attempt)** — Decide retry, retry-after-ms, or fail.
+- **retry_strategy(error, action)** / **retry_strategy_attempt(error, action, attempt)** — Decide retry, retry-after-ms, or fail. Retry applies only to executor `Err`; `attempt` is the 0-based failure count (0 = first failure, 1 = after one retry failed, etc.).
 - **budget()** (optional) — Cost/usage limits (e.g. max_tool_calls, max_llm_tokens).
 
 **Default**: `AllowAllPolicy` allows all actions and fails on first error. **Enterprise**: Use `AllowListPolicy` (allow/deny by tool or provider), `RetryWithBackoffPolicy` (wrap another policy for retries with backoff), and optionally a budget; see `kernel::policy` and `kernel::stubs`.
@@ -83,6 +87,13 @@ All non-deterministic inputs must go through **Action** and be recorded as event
 
 - **`oris_runtime::kernel`** — All kernel types and traits (identity, event, snapshot, state, reducer, action, step, policy, driver).
 - **graph / agent / tools** — Unchanged stable API; later, Graph/Agent compile to StepFn, tools implement ActionExecutor.
+
+### 6.1 Usage: GraphStepFnAdapter and AgentStepFnAdapter (Tokio runtime)
+
+When using **GraphStepFnAdapter** or **AgentStepFnAdapter**, the kernel’s sync `run_until_blocked` must run on a thread that has an **entered** Tokio runtime (the adapters use `block_on` internally). If there is no runtime, the adapters return a `Driver` error instead of panicking.
+
+- **From sync code:** Create a runtime (e.g. `Runtime::new()`), enter it (e.g. `rt.enter()`), then call `kernel.run_until_blocked(...)` on that thread.
+- **From async code:** Use **`tokio::task::block_in_place(|| kernel.run_until_blocked(...))`** or run the kernel on a **dedicated blocking thread** (e.g. `spawn_blocking` with a runtime created inside that thread). Do **not** call `run_until_blocked` directly from an async task without one of these patterns, or you may block the runtime or deadlock.
 
 ---
 

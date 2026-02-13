@@ -62,11 +62,16 @@ impl<S: State + KernelState + 'static> GraphStepFnAdapter<S> {
 }
 
 impl<S: State + KernelState + 'static> StepFn<GraphStepState<S>> for GraphStepFnAdapter<S> {
-    /// Callers must invoke the kernel from a thread that has an entered Tokio runtime;
-    /// do not call from inside an async task (to avoid blocking the runtime).
+    /// Requires a Tokio runtime on the current thread; use `Handle::try_current()` to check.
+    /// From async, use `block_in_place` or a dedicated thread.
     fn next(&self, state: &GraphStepState<S>) -> Result<Next, KernelError> {
+        let handle = tokio::runtime::Handle::try_current().map_err(|_| {
+            KernelError::Driver(
+                "Tokio runtime required: call from a thread with an entered runtime (e.g. after Runtime::new() and rt.enter()), or use block_in_place from an async task. Do not call from inside an async task without block_in_place.".into(),
+            )
+        })?;
         let config = self.config.as_ref();
-        let result = tokio::runtime::Handle::current().block_on(
+        let result = handle.block_on(
             self.graph.step_once(&state.graph_state, &state.current_node, config),
         );
         match result.map_err(|e| KernelError::Driver(e.to_string()))? {

@@ -291,7 +291,10 @@ impl<S: State + 'static> CompiledGraph<S> {
     /// Does not append events; used by GraphStepFnAdapter for kernel-driven execution.
     ///
     /// Currently requires exactly one outgoing edge from START and from each node;
-    /// multi-exit / conditional routing is not supported and will return an error.
+    /// multi-exit is not supported and will return an error. The single allowed edge
+    /// may be conditional; routing is determined by `edge.get_target(state)`.
+    /// Intended for graphs whose nodes do not perform external I/O; otherwise replay
+    /// may be non-deterministic or have side effects (see kernel-api §4.2).
     pub async fn step_once(
         &self,
         current_state: &S,

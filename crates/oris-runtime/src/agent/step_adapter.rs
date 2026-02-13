@@ -56,13 +56,18 @@ impl AgentStepFnAdapter {
 }
 
 impl StepFn<AgentStepState> for AgentStepFnAdapter {
-    /// Callers must invoke the kernel from a thread that has an entered Tokio runtime;
-    /// do not call from inside an async task (to avoid blocking the runtime).
+    /// Requires a Tokio runtime on the current thread; use `Handle::try_current()` to check.
+    /// From async, use `block_in_place` or a dedicated thread.
     fn next(&self, state: &AgentStepState) -> Result<Next, KernelError> {
+        let handle = tokio::runtime::Handle::try_current().map_err(|_| {
+            KernelError::Driver(
+                "Tokio runtime required: call from a thread with an entered runtime (e.g. after Runtime::new() and rt.enter()), or use block_in_place from an async task. Do not call from inside an async task without block_in_place.".into(),
+            )
+        })?;
         let agent = Arc::clone(&self.agent);
         let config = self.config.clone();
         let prompt_args = state.prompt_args.clone();
-        let result = tokio::runtime::Handle::current().block_on(async move {
+        let result = handle.block_on(async move {
             agent
                 .invoke_with_config(AgentInput::State(prompt_args), &config)
                 .await

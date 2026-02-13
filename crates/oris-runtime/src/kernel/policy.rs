@@ -54,8 +54,12 @@ pub trait Policy: Send + Sync {
         RetryDecision::Fail
     }
 
-    /// Retry strategy with attempt count (0-based). Default delegates to retry_strategy.
+    /// Retry strategy with attempt count. Default delegates to retry_strategy.
     /// Applies only to executor `Err` (infrastructure failure). `ActionResult::Failure` is not retried.
+    ///
+    /// `attempt` is the 0-based count of failures so far: 0 = first failure (before any retry),
+    /// 1 = second failure (after one retry failed), etc. Return `Fail` when no more retries are
+    /// desired (e.g. `if attempt >= max_retries { Fail } else { RetryAfterMs(...) }`).
     fn retry_strategy_attempt(
         &self,
         err: &dyn std::fmt::Display,
