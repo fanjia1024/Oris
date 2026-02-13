@@ -1,14 +1,18 @@
 //! Kernel driver: run_until_blocked, resume, replay.
 
+use std::time::Duration;
+
 use crate::kernel::action::{ActionExecutor, ActionResult};
 use crate::kernel::event::{Event, EventStore};
 use crate::kernel::identity::{RunId, Seq};
-use crate::kernel::policy::{Policy, PolicyCtx};
+use crate::kernel::policy::{Policy, PolicyCtx, RetryDecision};
 use crate::kernel::reducer::Reducer;
 use crate::kernel::snapshot::{Snapshot, SnapshotStore};
 use crate::kernel::state::KernelState;
 use crate::kernel::step::{InterruptInfo, Next, StepFn};
 use crate::kernel::KernelError;
+
+const MAX_RETRIES: u32 = 10;
 
 /// Standardized status of a run after run_until_blocked or resume.
 #[derive(Clone, Debug)]
@@ -129,7 +133,63 @@ impl<S: KernelState> Kernel<S> {
                                 }],
                             )?;
                         }
-                        Err(e) => return Err(e),
+                        Err(mut e) => {
+                            let mut attempt = 0u32;
+                            loop {
+                                let decision =
+                                    self.policy.retry_strategy_attempt(&e, &action, attempt);
+                                match decision {
+                                    RetryDecision::Fail => {
+                                        self.events.append(
+                                            run_id,
+                                            &[Event::ActionFailed {
+                                                action_id: action_id.clone(),
+                                                error: e.to_string(),
+                                            }],
+                                        )?;
+                                        return Ok(RunStatus::Failed { recoverable: false });
+                                    }
+                                    RetryDecision::Retry | RetryDecision::RetryAfterMs(0) => {}
+                                    RetryDecision::RetryAfterMs(ms) => {
+                                        std::thread::sleep(Duration::from_millis(ms));
+                                    }
+                                }
+                                if attempt >= MAX_RETRIES {
+                                    self.events.append(
+                                        run_id,
+                                        &[Event::ActionFailed {
+                                            action_id: action_id.clone(),
+                                            error: e.to_string(),
+                                        }],
+                                    )?;
+                                    return Ok(RunStatus::Failed { recoverable: true });
+                                }
+                                attempt += 1;
+                                match self.exec.execute(run_id, &action) {
+                                    Ok(ActionResult::Success(output)) => {
+                                        self.events.append(
+                                            run_id,
+                                            &[Event::ActionSucceeded {
+                                                action_id: action_id.clone(),
+                                                output,
+                                            }],
+                                        )?;
+                                        break;
+                                    }
+                                    Ok(ActionResult::Failure(error)) => {
+                                        self.events.append(
+                                            run_id,
+                                            &[Event::ActionFailed {
+                                                action_id: action_id.clone(),
+                                                error,
+                                            }],
+                                        )?;
+                                        break;
+                                    }
+                                    Err(e2) => e = e2,
+                                }
+                            }
+                        }
                     }
                     let new_events = self.events.scan(run_id, before + 1)?;
                     for se in new_events {
@@ -358,6 +418,41 @@ mod tests {
         let s2 = k.replay(&run_id, initial).unwrap();
         assert_eq!(s1, s2, "same log and initial state must yield equal state");
         assert_eq!(s1.0, 20);
+    }
+
+    /// Failure path: executor returns Err → RunStatus::Failed and event log has ActionFailed for that action_id.
+    #[test]
+    fn run_until_blocked_failure_recovery() {
+        let store = Arc::new(InMemoryEventStore::new());
+        let run_id = "run-fail".to_string();
+        let k = Kernel::<TestState> {
+            events: Box::new(SharedEventStore(Arc::clone(&store))),
+            snaps: None,
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(CountingActionExecutor::new(Arc::new(AtomicUsize::new(0)))),
+            step: Box::new(DoOnceStep),
+            policy: Box::new(AllowAllPolicy),
+        };
+        let status = k.run_until_blocked(&run_id, TestState(0)).unwrap();
+        assert!(
+            matches!(status, RunStatus::Failed { recoverable } if !recoverable),
+            "default policy says Fail so recoverable should be false"
+        );
+        let events = store.scan(&run_id, 1).unwrap();
+        let has_requested = events.iter().any(|e| matches!(e.event, Event::ActionRequested { .. }));
+        let has_failed = events.iter().any(|e| matches!(e.event, Event::ActionFailed { .. }));
+        assert!(has_requested && has_failed, "event log must contain ActionRequested and ActionFailed for the same action");
+    }
+
+    /// Step that returns Next::Do once so the driver executes one action.
+    struct DoOnceStep;
+    impl StepFn<TestState> for DoOnceStep {
+        fn next(&self, _state: &TestState) -> Result<Next, KernelError> {
+            Ok(Next::Do(Action::CallTool {
+                tool: "dummy".into(),
+                input: serde_json::json!(null),
+            }))
+        }
     }
 
     /// Replay from snapshot applies only events after at_seq.

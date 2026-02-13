@@ -25,6 +25,7 @@ use super::{
         store::StoreBox,
     },
     state::{State, StateUpdate},
+    step_result::GraphStepOnceResult,
     streaming::{
         chunk::StreamChunk,
         metadata::{MessageChunk, MessageMetadata},
@@ -284,6 +285,79 @@ impl<S: State + 'static> CompiledGraph<S> {
         let updated_json =
             serde_json::to_value(&updated_state).map_err(GraphError::SerializationError)?;
         serde_json::from_value(updated_json).map_err(GraphError::SerializationError)
+    }
+
+    /// Execute a single graph step from (current_state, current_node).
+    /// Does not append events; used by GraphStepFnAdapter for kernel-driven execution.
+    pub async fn step_once(
+        &self,
+        current_state: &S,
+        current_node: &str,
+        config: Option<&RunnableConfig>,
+    ) -> Result<GraphStepOnceResult<S>, GraphError> {
+        let store = self.store.clone();
+
+        let node_to_run = if current_node.is_empty() || current_node == START {
+            let edges = self.adjacency.get(START).ok_or_else(|| {
+                GraphError::ExecutionError("No edges from START".to_string())
+            })?;
+            if edges.is_empty() {
+                return Err(GraphError::ExecutionError("No edges from START".to_string()));
+            }
+            let edge = &edges[0];
+            edge.get_target(current_state).await?
+        } else if current_node == END {
+            return Ok(GraphStepOnceResult::Complete {
+                state: current_state.clone(),
+            });
+        } else {
+            current_node.to_string()
+        };
+
+        if node_to_run == END {
+            return Ok(GraphStepOnceResult::Complete {
+                state: current_state.clone(),
+            });
+        }
+
+        let edges = self.adjacency.get(&node_to_run).ok_or_else(|| {
+            GraphError::ExecutionError(format!("No edges from node: {}", node_to_run))
+        })?;
+
+        let node = self.nodes.get(&node_to_run).ok_or_else(|| {
+            GraphError::NodeNotFound(node_to_run.clone())
+        })?;
+
+        let update_result = node
+            .invoke_with_context(current_state, config, store)
+            .await;
+
+        match update_result {
+            Ok(update) => {
+                let new_state = self.merge_state_update(current_state, &update)?;
+                if edges.is_empty() {
+                    return Ok(GraphStepOnceResult::Complete { state: new_state });
+                }
+                let edge = &edges[0];
+                let next_node = edge.get_target(&new_state).await?;
+                if next_node == END {
+                    Ok(GraphStepOnceResult::Complete { state: new_state })
+                } else {
+                    Ok(GraphStepOnceResult::Emit {
+                        new_state,
+                        next_node,
+                    })
+                }
+            }
+            Err(GraphError::InterruptError(interrupt_err)) => {
+                let value = interrupt_err.value().clone();
+                Ok(GraphStepOnceResult::Interrupt {
+                    state: current_state.clone(),
+                    value,
+                })
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Stream the graph execution, yielding events as they occur

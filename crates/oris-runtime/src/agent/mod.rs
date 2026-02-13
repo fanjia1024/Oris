@@ -33,6 +33,9 @@ pub use unified_agent::*;
 mod state;
 pub use state::*;
 
+mod step_adapter;
+pub use step_adapter::*;
+
 mod structured_output;
 pub use structured_output::*;
 

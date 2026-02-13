@@ -44,9 +44,10 @@ Events are the only source of truth; state is derived by reduction.
 
 ## 3. SnapshotStore (optimization layer)
 
-- Snapshots are an **optimization**, not the source of truth.
-- Every **Snapshot** must include **at_seq: Seq** — the seq up to which state has been projected. This is required for correct recovery and replay (load snapshot, then replay events after at_seq).
-- **Implementations**: `kernel::InMemorySnapshotStore<S>` stores one snapshot per run. Graph `StateSnapshot` has optional `at_seq`; when the graph uses an event store, checkpoints saved at interrupt carry `at_seq` from the store head.
+- Snapshots are an **optimization**, not the source of truth. The **source of truth** is the event log.
+- **Rebuild semantics**: To obtain the current state for a run, the kernel does: **state = load_latest(run_id).state + replay(events, from = at_seq + 1)**. If there is no snapshot, state = initial_state and replay starts from seq 1. The snapshot only skips already-applied events; correctness depends on the event stream.
+- Every **Snapshot** must include **at_seq: Seq** — the seq up to which state has been projected. Recovery: load snapshot, then apply only events with seq > at_seq.
+- **Implementations**: `kernel::InMemorySnapshotStore<S>` stores one snapshot per run. Graph `StateSnapshot` has optional `at_seq`; when the graph uses an event store, checkpoints saved at interrupt carry `at_seq` from the store head (e.g. `event_store.head(run_id)`).
 
 ---
 
@@ -58,16 +59,23 @@ Events are the only source of truth; state is derived by reduction.
   - **ActionSucceeded { output }** or **ActionFailed { error }** (after execution)
 - Replay uses these stored results and does **not** call ActionExecutor.
 
+### 4.1 Non-determinism boundary (非确定性边界)
+
+All non-deterministic inputs must go through **Action** and be recorded as events. Replay must never call the real executor.
+
+- **In scope**: LLM responses, tool I/O, wall-clock time, random numbers, external signals (e.g. human approval). These must be performed as Actions and produce **ActionRequested** → **ActionSucceeded** or **ActionFailed**.
+- **Replay**: When rebuilding state from the event log (or from a snapshot + tail events), the kernel only applies stored events; it does **not** invoke ActionExecutor. Thus replay is deterministic and has no side effects.
+
 ---
 
 ## 5. Policy (governance)
 
 - The kernel must have a **Policy** layer (even if a minimal implementation).
 - **authorize(run_id, action, ctx)** — Decide whether the action is allowed.
-- **retry_strategy(error, action)** — Decide retry/backoff/fail.
-- **budget()** (optional) — Cost/usage limits.
+- **retry_strategy(error, action)** / **retry_strategy_attempt(error, action, attempt)** — Decide retry, retry-after-ms, or fail.
+- **budget()** (optional) — Cost/usage limits (e.g. max_tool_calls, max_llm_tokens).
 
-Without this, Oris remains a demo framework; with it, enterprise deployment is possible.
+**Default**: `AllowAllPolicy` allows all actions and fails on first error. **Enterprise**: Use `AllowListPolicy` (allow/deny by tool or provider), `RetryWithBackoffPolicy` (wrap another policy for retries with backoff), and optionally a budget; see `kernel::policy` and `kernel::stubs`.
 
 ---
 
@@ -104,3 +112,37 @@ One execution path satisfies “write event → then execute → then write resu
 - **`Kernel::replay_from_snapshot(run_id, initial_state)`**: If a snapshot exists for the run, starts from `snap.state` and applies only events with seq > snap.at_seq; otherwise same as replay. Rebuild semantics: state = snap + events(from=at_seq+1).
 - **Use case**: Reproducible state from history, audit, and recovery without re-executing external actions (A3).
 - **Tests**: `test_replay_reproduces_state` (graph + replay state match); `replay_no_side_effects` (executor 0 calls); `replay_state_equivalence` (same log → same state); `replay_from_snapshot_applies_tail_only`.
+
+---
+
+## 10. Event-first execution model (事件优先执行模型)
+
+Execution is **event-first**: the event log is the single source of truth; state is always derived by reducing events.
+
+1. **Append order**  
+   The driver appends events in a fixed order. For each external action: append **ActionRequested** → execute (or retry under policy) → append **ActionSucceeded** or **ActionFailed**. Every ActionRequested is paired with exactly one result event so that replay never sees an orphan request.
+
+2. **Replay never executes actions**  
+   Replay only scans stored events and applies them with the Reducer. It does **not** call ActionExecutor. Non-determinism (LLM, tools, time, etc.) is confined to Actions; their outcomes are already in the log.
+
+3. **at_seq and snapshots**  
+   A snapshot stores `state` and `at_seq` (the seq up to which that state was built). Rebuild = load snapshot state, then replay events with seq > at_seq. Snapshots are an optimization; correctness depends only on the event stream.
+
+4. **Failure and retry**  
+   On executor error the driver appends **ActionFailed** (so the log stays consistent), then consults Policy `retry_strategy`. If the policy returns **Fail**, the run returns `RunStatus::Failed { recoverable }`; otherwise the driver may retry (with optional backoff) up to a limit, then fail.
+
+---
+
+## 11. Standardized run status (标准化运行状态)
+
+`RunStatus` describes the outcome of `run_until_blocked` or `resume`:
+
+| Status | Meaning | Next steps |
+|--------|---------|------------|
+| **Completed** | The step fn returned `Next::Complete`; the run is done. | None. |
+| **Blocked(BlockedInfo)** | The step fn returned `Next::Interrupt` or is waiting on a signal. | Call `resume(run_id, signal)` when the interrupt is resolved or the signal arrives. |
+| **Running** | Optional; used when yielding before blocking. | Call `run_until_blocked` again (or continue the loop). |
+| **Failed { recoverable }** | An action failed and the policy chose not to retry (or retries were exhausted). | If `recoverable` is true, the run may be retried (e.g. resume with a new signal or restart from checkpoint). If false, the run should not be retried. |
+
+- **Resume**: Only valid after **Blocked**. Append a **Resumed** (or **Signal**) event, then run until the next Blocked or Completed or Failed.
+- **Retry**: Handled inside the driver via Policy `retry_strategy` (Retry / RetryAfterMs / Fail). After **Failed**, the application may retry the whole run (e.g. from a snapshot) when `recoverable` is true.

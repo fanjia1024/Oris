@@ -21,7 +21,7 @@ pub use driver::{BlockedInfo, Kernel, RunStatus, Signal};
 pub use event::{Event, EventStore, KernelError, SequencedEvent};
 pub use event_store::{InMemoryEventStore, SharedEventStore};
 pub use identity::{RunId, Seq, StepId};
-pub use policy::{BudgetRules, Policy, PolicyCtx, RetryDecision};
+pub use policy::{AllowListPolicy, BudgetRules, Policy, PolicyCtx, RetryDecision, RetryWithBackoffPolicy};
 pub use reducer::{Reducer, StateUpdatedOnlyReducer};
 pub use snapshot::{InMemorySnapshotStore, Snapshot, SnapshotStore};
 pub use state::KernelState;
