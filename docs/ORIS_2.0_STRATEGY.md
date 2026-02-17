@@ -164,3 +164,133 @@ This phase is intentionally **research-oriented**; priorities may shift based on
 - [Durable execution: crash recovery and replay](durable-execution.md) — resume from latest, replay from checkpoint_id, operator API.
 - [Public API (stable)](../README.md#public-api-stable) — `oris_runtime::graph`, `oris_runtime::agent`, `oris_runtime::tools`.
 - Code: `crates/oris-runtime/src/graph/` (execution, persistence, interrupts), `crates/oris-runtime/src/agent/`, [durable_agent_job](../crates/oris-runtime/examples/durable_agent_job.rs) example.
+
+---
+
+## 7. Current baseline and gap map (as of February 17, 2026)
+
+This section translates the strategy into concrete “done vs next” work.
+
+### 7.1 What is already in place
+
+- Kernel module exists (`crates/oris-runtime/src/kernel/*`) with:
+  - Event model (`Event`, `EventStore`, `SequencedEvent`)
+  - Driver (`run_until_blocked`, `resume`, `replay`, `replay_from_snapshot`)
+  - Policy layer (`AllowListPolicy`, `RetryWithBackoffPolicy`)
+  - Snapshot with `at_seq`
+- Graph persistence and interrupt flows are integrated with thread identity (`thread_id`) and checkpoint history.
+- Operator examples exist:
+  - `crates/oris-runtime/examples/cli_durable_job.rs`
+  - `crates/oris-runtime/examples/durable_agent_job_sqlite.rs`
+- Architecture and API intent are documented in:
+  - `docs/kernel-api.md`
+  - `docs/durable-execution.md`
+
+### 7.2 What is not yet production-closed for Phase 1
+
+1. **Public API boundary is still too broad**  
+   `oris_runtime::lib` exports many domains; “kernel-first” boundary is documented but not enforced by crate structure and feature gates.
+
+2. **Event store backend is in-memory only at kernel layer**  
+   SQLite exists for graph checkpoints, but kernel-level durable event log backend and migration strategy are not yet formalized.
+
+3. **Observability is not operator-grade yet**  
+   Trace exists, but metrics/log correlation (run_id/step_id/action_id) and audit export contract are incomplete.
+
+4. **Refactor debt in module ownership**  
+   Logic is split across graph execution, persistence, and kernel adapters; ownership and dependency direction need hardening.
+
+5. **Release gates are not encoded as a mandatory test matrix**  
+   Need CI gates for crash-recovery, replay determinism, interrupt-resume correctness, and policy retry semantics.
+
+---
+
+## 8. 12-week execution plan (kernel hardening first)
+
+Timebox: **Wave 1–3**, starting **February 23, 2026**.  
+Rule: No Phase 2 expansion until all Wave 3 acceptance checks pass.
+
+### Wave 1 (weeks 1-4): boundary and reliability hardening
+
+**Work packages**
+
+1. API boundary refactor
+   - Freeze kernel-facing contracts in `kernel/*` and adapter contracts in graph.
+   - Minimize cross-module coupling from `graph/*` into kernel internals.
+   - Add explicit “stable vs internal” doc blocks to exported symbols.
+
+2. Deterministic replay contract tests
+   - Add scenario tests for:
+     - replay equivalence (same log => same state)
+     - replay without executor side effects
+     - replay from snapshot tail (`at_seq + 1`)
+   - Cover both in-memory and sqlite-persistence feature paths where applicable.
+
+3. Failure model cleanup
+   - Normalize recoverable vs non-recoverable error mapping in driver/adapter path.
+   - Ensure ActionRequested always has exactly one terminal result event.
+
+**Wave 1 acceptance**
+
+- Kernel and graph adapter tests pass for replay/interrupt/retry core scenarios.
+- Public API notes clearly identify which symbols are stable in 0.1.x.
+
+### Wave 2 (weeks 5-8): observability and operator flow
+
+**Work packages**
+
+1. Trace unification
+   - Standardize fields: `run_id`, `step_id`, `action_id`, `checkpoint_id`, `seq`.
+   - Keep existing `TraceEvent` compatibility while providing a normalized view for operators.
+
+2. CLI/operator parity upgrade
+   - Extend `cli_durable_job` workflow:
+     - inspect latest state
+     - inspect checkpoint by id
+     - replay dry-run from checkpoint
+   - Document exact runbooks for crash and resume operations.
+
+3. Persistence and audit shape
+   - Define minimal audit payload format for start/resume/replay actions.
+   - Document retention and compaction expectations for checkpoint/event growth.
+
+**Wave 2 acceptance**
+
+- Operator can run a full lifecycle (`run -> interrupt -> resume -> list -> replay`) from CLI.
+- Trace output can be correlated end-to-end for one `thread_id` / `run_id`.
+
+### Wave 3 (weeks 9-12): release gating and migration readiness
+
+**Work packages**
+
+1. Release test matrix in CI
+   - Required suites:
+     - crash recovery with sqlite persistence
+     - deterministic replay invariants
+     - policy retry/backoff behavior
+     - interrupt/resume contract
+
+2. Data compatibility and migration note
+   - Define checkpoint/event schema compatibility policy for 0.1.x -> 0.2.x.
+   - Add migration playbook (how to upgrade without losing resumability).
+
+3. Production readiness checklist
+   - Publish a single “Phase 1 ready” checklist and mark each criterion pass/fail.
+   - Block Phase 2 work until checklist reaches “all pass”.
+
+**Wave 3 acceptance**
+
+- CI enforces the Phase 1 gates as blocking checks.
+- Upgrade guidance exists and is validated on a sample persisted run set.
+
+---
+
+## 9. Transition criteria from Phase 1 to Phase 2
+
+Phase 2 (asset layer) may start only when all criteria below are met:
+
+1. Replay from checkpoint is deterministic and covered by CI (not only examples).
+2. Crash recovery with persisted backend is verified in automated tests.
+3. Operator tooling supports run/resume/list/replay/inspect as documented.
+4. Trace and audit fields are stable enough for external integration.
+5. Public module boundary for kernel/graph/agent is explicitly documented and respected.

@@ -8,7 +8,7 @@ use async_trait::async_trait;
 #[cfg(feature = "sqlite-persistence")]
 use chrono::{DateTime, Utc};
 #[cfg(feature = "sqlite-persistence")]
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 #[cfg(feature = "sqlite-persistence")]
 use serde_json::Value;
 #[cfg(feature = "sqlite-persistence")]
@@ -73,10 +73,23 @@ where
                 state_values BLOB NOT NULL,
                 next_nodes TEXT NOT NULL,
                 metadata TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                at_seq INTEGER
             )",
             [],
         )?;
+
+        let has_at_seq = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('checkpoints') WHERE name = 'at_seq' LIMIT 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .is_some();
+        if !has_at_seq {
+            conn.execute("ALTER TABLE checkpoints ADD COLUMN at_seq INTEGER", [])?;
+        }
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_thread_id ON checkpoints(thread_id)",
@@ -140,8 +153,8 @@ where
         conn.execute(
             "INSERT INTO checkpoints (
                 thread_id, checkpoint_id, checkpoint_ns, parent_checkpoint_id,
-                state_values, next_nodes, metadata, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                state_values, next_nodes, metadata, created_at, at_seq
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 thread_id,
                 checkpoint_id,
@@ -151,6 +164,7 @@ where
                 next_nodes_json,
                 metadata_json,
                 created_at,
+                checkpoint.at_seq.map(|seq| seq as i64),
             ],
         )?;
 
@@ -166,13 +180,13 @@ where
 
         let query = if let Some(_cp_id) = checkpoint_id {
             "SELECT checkpoint_id, checkpoint_ns, parent_checkpoint_id, state_values, 
-                    next_nodes, metadata, created_at
+                    next_nodes, metadata, created_at, at_seq
              FROM checkpoints 
              WHERE thread_id = ?1 AND checkpoint_id = ?2
              ORDER BY created_at DESC LIMIT 1"
         } else {
             "SELECT checkpoint_id, checkpoint_ns, parent_checkpoint_id, state_values, 
-                    next_nodes, metadata, created_at
+                    next_nodes, metadata, created_at, at_seq
              FROM checkpoints 
              WHERE thread_id = ?1
              ORDER BY created_at DESC LIMIT 1"
@@ -193,6 +207,7 @@ where
             let next_nodes_json: String = row.get(4)?;
             let metadata_json: String = row.get(5)?;
             let created_at_str: String = row.get(6)?;
+            let at_seq: Option<i64> = row.get(7)?;
 
             // Deserialize state using serde_json (map to rusqlite::Error for closure return type)
             let values: S = serde_json::from_slice(&state_bytes).map_err(|_e| {
@@ -252,7 +267,7 @@ where
                 metadata,
                 created_at,
                 parent_config,
-                at_seq: None,
+                at_seq: at_seq.map(|seq| seq as u64),
             })
         });
 
@@ -273,7 +288,7 @@ where
         let limit_clause = limit.map(|l| format!("LIMIT {}", l)).unwrap_or_default();
         let query = format!(
             "SELECT checkpoint_id, checkpoint_ns, parent_checkpoint_id, state_values, 
-                    next_nodes, metadata, created_at
+                    next_nodes, metadata, created_at, at_seq
              FROM checkpoints 
              WHERE thread_id = ?1
              ORDER BY created_at ASC {}",
@@ -289,6 +304,7 @@ where
             let next_nodes_json: String = row.get(4)?;
             let metadata_json: String = row.get(5)?;
             let created_at_str: String = row.get(6)?;
+            let at_seq: Option<i64> = row.get(7)?;
 
             // Deserialize state using serde_json (map to rusqlite::Error for closure return type)
             let values: S = serde_json::from_slice(&state_bytes).map_err(|_e| {
@@ -348,7 +364,7 @@ where
                 metadata,
                 created_at,
                 parent_config,
-                at_seq: None,
+                at_seq: at_seq.map(|seq| seq as u64),
             })
         })?;
 
@@ -364,9 +380,30 @@ where
 #[cfg(all(test, feature = "sqlite-persistence"))]
 mod tests {
     use super::*;
+    use crate::graph::persistence::Checkpointer;
     use crate::graph::state::MessagesState;
     use crate::schemas::messages::Message;
     use std::fs;
+
+    #[test]
+    fn test_sqlite_saver_roundtrip_at_seq() {
+        let saver = SqliteSaver::<MessagesState>::new_in_memory().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let state = MessagesState::with_messages(vec![Message::new_ai_message("hello")]);
+            let config = CheckpointConfig::new("thread-at-seq");
+            let snapshot = StateSnapshot::new(state, vec!["node1".to_string()], config).with_at_seq(42);
+
+            let checkpoint_id = saver.put("thread-at-seq", &snapshot).await.unwrap();
+            let loaded = saver
+                .get("thread-at-seq", Some(&checkpoint_id))
+                .await
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(loaded.at_seq, Some(42));
+        });
+    }
 
     #[tokio::test]
     #[ignore = "SqliteSaver::new blocks; cannot run inside tokio runtime"]

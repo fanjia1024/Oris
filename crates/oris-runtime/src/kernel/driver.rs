@@ -128,6 +128,7 @@ impl<S: KernelState> Kernel<S> {
                         Ok(ActionResult::Failure(error)) => {
                             self.events
                                 .append(run_id, &[Event::ActionFailed { action_id, error }])?;
+                            return Ok(RunStatus::Failed { recoverable: false });
                         }
                         Err(mut e) => {
                             let mut attempt = 0u32;
@@ -170,7 +171,7 @@ impl<S: KernelState> Kernel<S> {
                                                 error,
                                             }],
                                         )?;
-                                        break;
+                                        return Ok(RunStatus::Failed { recoverable: false });
                                     }
                                     Err(e2) => e = e2,
                                 }
@@ -249,11 +250,12 @@ mod tests {
     use crate::kernel::action::{Action, ActionExecutor, ActionResult};
     use crate::kernel::event::Event;
     use crate::kernel::event_store::{InMemoryEventStore, SharedEventStore};
+    use crate::kernel::policy::RetryWithBackoffPolicy;
     use crate::kernel::stubs::{AllowAllPolicy, NoopActionExecutor, NoopStepFn};
     use crate::kernel::StateUpdatedOnlyReducer;
     use serde::{Deserialize, Serialize};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
     struct TestState(u32);
@@ -450,6 +452,58 @@ mod tests {
         }
     }
 
+    /// Step that does one action first, then completes.
+    struct DoThenCompleteStep {
+        called: AtomicUsize,
+    }
+    impl DoThenCompleteStep {
+        fn new() -> Self {
+            Self {
+                called: AtomicUsize::new(0),
+            }
+        }
+    }
+    impl StepFn<TestState> for DoThenCompleteStep {
+        fn next(&self, _state: &TestState) -> Result<Next, KernelError> {
+            let prev = self.called.fetch_add(1, Ordering::SeqCst);
+            if prev == 0 {
+                Ok(Next::Do(Action::CallTool {
+                    tool: "dummy".into(),
+                    input: serde_json::json!(null),
+                }))
+            } else {
+                Ok(Next::Complete)
+            }
+        }
+    }
+
+    /// Executor that returns pre-scripted results in order.
+    struct ScriptedActionExecutor {
+        responses: Mutex<Vec<Result<ActionResult, KernelError>>>,
+        calls: AtomicUsize,
+    }
+    impl ScriptedActionExecutor {
+        fn new(responses: Vec<Result<ActionResult, KernelError>>) -> Self {
+            Self {
+                responses: Mutex::new(responses),
+                calls: AtomicUsize::new(0),
+            }
+        }
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+    impl ActionExecutor for ScriptedActionExecutor {
+        fn execute(&self, _run_id: &RunId, _action: &Action) -> Result<ActionResult, KernelError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut guard = self.responses.lock().unwrap();
+            if guard.is_empty() {
+                return Err(KernelError::Driver("missing scripted response".into()));
+            }
+            guard.remove(0)
+        }
+    }
+
     /// Replay from snapshot applies only events after at_seq.
     #[test]
     fn replay_from_snapshot_applies_tail_only() {
@@ -496,5 +550,139 @@ mod tests {
         };
         let state = k.replay_from_snapshot(&run_id, TestState(0)).unwrap();
         assert_eq!(state.0, 30, "only events after at_seq=2 (seq 3) applied");
+    }
+
+    #[test]
+    fn action_result_failure_returns_failed_and_single_terminal_event() {
+        let store = Arc::new(InMemoryEventStore::new());
+        let run_id = "run-action-failure".to_string();
+        let k = Kernel::<TestState> {
+            events: Box::new(SharedEventStore(Arc::clone(&store))),
+            snaps: None,
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(ScriptedActionExecutor::new(vec![Ok(ActionResult::Failure(
+                "boom".into(),
+            ))])),
+            step: Box::new(DoOnceStep),
+            policy: Box::new(AllowAllPolicy),
+        };
+
+        let status = k.run_until_blocked(&run_id, TestState(0)).unwrap();
+        assert!(
+            matches!(status, RunStatus::Failed { recoverable } if !recoverable),
+            "ActionResult::Failure must fail the run"
+        );
+
+        let events = store.scan(&run_id, 1).unwrap();
+        let mut requested_id: Option<String> = None;
+        let mut success_count = 0usize;
+        let mut failed_count = 0usize;
+        for e in &events {
+            match &e.event {
+                Event::ActionRequested { action_id, .. } => requested_id = Some(action_id.clone()),
+                Event::ActionSucceeded { .. } => success_count += 1,
+                Event::ActionFailed { action_id, .. } => {
+                    failed_count += 1;
+                    assert_eq!(
+                        requested_id.as_deref(),
+                        Some(action_id.as_str()),
+                        "failed event must match requested action_id"
+                    );
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(success_count, 0);
+        assert_eq!(failed_count, 1, "only one terminal failure event is expected");
+    }
+
+    #[test]
+    fn retry_then_success_has_single_terminal_success_event() {
+        let store = Arc::new(InMemoryEventStore::new());
+        let run_id = "run-retry-success".to_string();
+        let exec = Arc::new(ScriptedActionExecutor::new(vec![
+            Err(KernelError::Driver("transient-1".into())),
+            Err(KernelError::Driver("transient-2".into())),
+            Ok(ActionResult::Success(serde_json::json!("ok"))),
+        ]));
+        let k = Kernel::<TestState> {
+            events: Box::new(SharedEventStore(Arc::clone(&store))),
+            snaps: None,
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(ArcExecutor(Arc::clone(&exec))),
+            step: Box::new(DoThenCompleteStep::new()),
+            policy: Box::new(RetryWithBackoffPolicy::new(AllowAllPolicy, 3, 0)),
+        };
+
+        let status = k.run_until_blocked(&run_id, TestState(0)).unwrap();
+        assert!(matches!(status, RunStatus::Completed));
+        assert_eq!(exec.calls(), 3, "executor should be called for retries");
+
+        let events = store.scan(&run_id, 1).unwrap();
+        let requested_count = events
+            .iter()
+            .filter(|e| matches!(e.event, Event::ActionRequested { .. }))
+            .count();
+        let success_count = events
+            .iter()
+            .filter(|e| matches!(e.event, Event::ActionSucceeded { .. }))
+            .count();
+        let failed_count = events
+            .iter()
+            .filter(|e| matches!(e.event, Event::ActionFailed { .. }))
+            .count();
+        assert_eq!(requested_count, 1, "retry must not duplicate ActionRequested");
+        assert_eq!(success_count, 1, "exactly one terminal success event expected");
+        assert_eq!(failed_count, 0, "success path must not emit ActionFailed");
+    }
+
+    #[test]
+    fn retry_exhausted_has_single_terminal_failed_event() {
+        let store = Arc::new(InMemoryEventStore::new());
+        let run_id = "run-retry-fail".to_string();
+        let exec = Arc::new(ScriptedActionExecutor::new(vec![
+            Err(KernelError::Driver("transient-1".into())),
+            Err(KernelError::Driver("transient-2".into())),
+            Err(KernelError::Driver("transient-3".into())),
+        ]));
+        let k = Kernel::<TestState> {
+            events: Box::new(SharedEventStore(Arc::clone(&store))),
+            snaps: None,
+            reducer: Box::new(StateUpdatedOnlyReducer),
+            exec: Box::new(ArcExecutor(Arc::clone(&exec))),
+            step: Box::new(DoThenCompleteStep::new()),
+            policy: Box::new(RetryWithBackoffPolicy::new(AllowAllPolicy, 1, 0)),
+        };
+
+        let status = k.run_until_blocked(&run_id, TestState(0)).unwrap();
+        assert!(
+            matches!(status, RunStatus::Failed { recoverable } if !recoverable),
+            "exhausted retries should fail run"
+        );
+        assert_eq!(exec.calls(), 2, "max_retries=1 should execute twice");
+
+        let events = store.scan(&run_id, 1).unwrap();
+        let requested_count = events
+            .iter()
+            .filter(|e| matches!(e.event, Event::ActionRequested { .. }))
+            .count();
+        let success_count = events
+            .iter()
+            .filter(|e| matches!(e.event, Event::ActionSucceeded { .. }))
+            .count();
+        let failed_count = events
+            .iter()
+            .filter(|e| matches!(e.event, Event::ActionFailed { .. }))
+            .count();
+        assert_eq!(requested_count, 1, "retry must not duplicate ActionRequested");
+        assert_eq!(success_count, 0);
+        assert_eq!(failed_count, 1, "exactly one terminal failed event expected");
+    }
+
+    struct ArcExecutor(Arc<ScriptedActionExecutor>);
+    impl ActionExecutor for ArcExecutor {
+        fn execute(&self, run_id: &RunId, action: &Action) -> Result<ActionResult, KernelError> {
+            self.0.execute(run_id, action)
+        }
     }
 }
