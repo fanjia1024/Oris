@@ -560,9 +560,9 @@ mod tests {
             events: Box::new(SharedEventStore(Arc::clone(&store))),
             snaps: None,
             reducer: Box::new(StateUpdatedOnlyReducer),
-            exec: Box::new(ScriptedActionExecutor::new(vec![Ok(ActionResult::Failure(
-                "boom".into(),
-            ))])),
+            exec: Box::new(ScriptedActionExecutor::new(vec![Ok(
+                ActionResult::Failure("boom".into()),
+            )])),
             step: Box::new(DoOnceStep),
             policy: Box::new(AllowAllPolicy),
         };
@@ -593,7 +593,10 @@ mod tests {
             }
         }
         assert_eq!(success_count, 0);
-        assert_eq!(failed_count, 1, "only one terminal failure event is expected");
+        assert_eq!(
+            failed_count, 1,
+            "only one terminal failure event is expected"
+        );
     }
 
     #[test]
@@ -631,8 +634,14 @@ mod tests {
             .iter()
             .filter(|e| matches!(e.event, Event::ActionFailed { .. }))
             .count();
-        assert_eq!(requested_count, 1, "retry must not duplicate ActionRequested");
-        assert_eq!(success_count, 1, "exactly one terminal success event expected");
+        assert_eq!(
+            requested_count, 1,
+            "retry must not duplicate ActionRequested"
+        );
+        assert_eq!(
+            success_count, 1,
+            "exactly one terminal success event expected"
+        );
         assert_eq!(failed_count, 0, "success path must not emit ActionFailed");
     }
 
@@ -674,9 +683,15 @@ mod tests {
             .iter()
             .filter(|e| matches!(e.event, Event::ActionFailed { .. }))
             .count();
-        assert_eq!(requested_count, 1, "retry must not duplicate ActionRequested");
+        assert_eq!(
+            requested_count, 1,
+            "retry must not duplicate ActionRequested"
+        );
         assert_eq!(success_count, 0);
-        assert_eq!(failed_count, 1, "exactly one terminal failed event expected");
+        assert_eq!(
+            failed_count, 1,
+            "exactly one terminal failed event expected"
+        );
     }
 
     struct ArcExecutor(Arc<ScriptedActionExecutor>);

@@ -392,7 +392,8 @@ mod tests {
         rt.block_on(async {
             let state = MessagesState::with_messages(vec![Message::new_ai_message("hello")]);
             let config = CheckpointConfig::new("thread-at-seq");
-            let snapshot = StateSnapshot::new(state, vec!["node1".to_string()], config).with_at_seq(42);
+            let snapshot =
+                StateSnapshot::new(state, vec!["node1".to_string()], config).with_at_seq(42);
 
             let checkpoint_id = saver.put("thread-at-seq", &snapshot).await.unwrap();
             let loaded = saver
