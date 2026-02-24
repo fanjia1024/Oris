@@ -12,8 +12,8 @@ pub use llm_chain::*;
 mod sequential;
 pub use sequential::*;
 
-mod sql_datbase;
-pub use sql_datbase::*;
+mod sql_database;
+pub use sql_database::*;
 
 mod stuff_documents;
 pub use stuff_documents::*;

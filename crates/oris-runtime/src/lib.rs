@@ -53,43 +53,43 @@
 
 /// Agents: conversational and unified agents, tools, executor, middleware, Deep Agent. **Stable API.**
 pub mod agent;
-/// Chains: LLM, conversational, sequential, QA, SQL, RAG chains and options.
+/// Chains: LLM, conversational, sequential, QA, SQL, RAG chains and options. Experimental API in 0.1.x.
 pub mod chain;
-/// Document loaders: PDF, HTML, CSV, Git, S3, and more (feature-gated).
+/// Document loaders: PDF, HTML, CSV, Git, S3, and more (feature-gated). Experimental API in 0.1.x.
 pub mod document_loaders;
-/// Embedding models (OpenAI, Ollama, FastEmbed, etc.; feature-gated).
+/// Embedding models (OpenAI, Ollama, FastEmbed, etc.; feature-gated). Experimental API in 0.1.x.
 pub mod embedding;
 /// Unified error types and utilities.
 pub mod error;
 /// Graph: state graphs, streaming, persistence, subgraphs, interrupts. **Stable API.**
 pub mod graph;
-/// Kernel API (2.0): event log, snapshot, reducer, action, step, policy, driver. Reserved for 2.0.
+/// Kernel API (2.0): event log, snapshot, reducer, action, step, policy, driver. Experimental API in 0.1.x.
 pub mod kernel;
-/// Common LLM/embedding traits and config.
+/// Common LLM/embedding traits and config. Experimental API in 0.1.x.
 pub mod language_models;
-/// LLM implementations: OpenAI, Claude, Ollama, Mistral, etc. (feature-gated).
+/// LLM implementations: OpenAI, Claude, Ollama, Mistral, etc. (feature-gated). Experimental API in 0.1.x.
 pub mod llm;
-/// Memory: simple, conversational, and long-term (Deep Agent).
+/// Memory: simple, conversational, and long-term (Deep Agent). Experimental API in 0.1.x.
 pub mod memory;
-/// Output parsers for chains and agents.
+/// Output parsers for chains and agents. Experimental API in 0.1.x.
 pub mod output_parsers;
-/// Prompts, templates, and message formatting.
+/// Prompts, templates, and message formatting. Experimental API in 0.1.x.
 pub mod prompt;
-/// RAG: agentic, hybrid, and two-step retrieval-augmented generation.
+/// RAG: agentic, hybrid, and two-step retrieval-augmented generation. Experimental API in 0.1.x.
 pub mod rag;
-/// Retrievers and rerankers (feature-gated).
+/// Retrievers and rerankers (feature-gated). Experimental API in 0.1.x.
 pub mod retrievers;
-/// Schemas: messages, documents, prompts, memory.
+/// Schemas: messages, documents, prompts, memory. Experimental API in 0.1.x.
 pub mod schemas;
-/// Semantic routing and routing layers.
+/// Semantic routing and routing layers. Experimental API in 0.1.x.
 pub mod semantic_router;
-/// Text splitters and code splitters (tree-sitter when enabled).
+/// Text splitters and code splitters (tree-sitter when enabled). Experimental API in 0.1.x.
 pub mod text_splitter;
 /// Tools: command, search, Wolfram, long-term memory, etc. **Stable API.**
 pub mod tools;
-/// Utilities: similarity, vectors, builder, async helpers.
+/// Utilities: similarity, vectors, builder, async helpers. Experimental API in 0.1.x.
 pub mod utils;
-/// Vector stores: pgvector, Qdrant, SQLite, SurrealDB, etc. (feature-gated).
+/// Vector stores: pgvector, Qdrant, SQLite, SurrealDB, etc. (feature-gated). Experimental API in 0.1.x.
 pub mod vectorstore;
 
 pub use url;

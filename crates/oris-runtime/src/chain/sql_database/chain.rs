@@ -24,7 +24,7 @@ pub struct SqlChainPromptBuilder {
 impl SqlChainPromptBuilder {
     pub fn new() -> Self {
         Self {
-            query: "".to_string(),
+            query: String::new(),
         }
     }
 
@@ -46,7 +46,7 @@ pub struct SQLDatabaseChain {
     pub(crate) database: SQLDatabase,
 }
 
-/// SQLChain let you interact with a db in human lenguage
+/// SQLChain lets you interact with a db in human language.
 ///
 /// The input variable name is `query`.
 /// Example
@@ -160,8 +160,9 @@ impl Chain for SQLDatabaseChain {
         let output = self.llmchain.call(llm_inputs).await?;
         if let Some(tokens) = output.tokens {
             if let Some(general_result) = token_usage.as_mut() {
-                general_result.completion_tokens += tokens.completion_tokens;
-                general_result.total_tokens += tokens.total_tokens;
+                general_result.add(&tokens);
+            } else {
+                token_usage = Some(tokens);
             }
         }
 
