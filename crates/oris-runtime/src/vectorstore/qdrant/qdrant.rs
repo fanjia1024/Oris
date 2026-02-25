@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use qdrant_client::client::Payload;
+use qdrant_client::Payload;
 use qdrant_client::qdrant::{
     DeletePointsBuilder, Filter, PointStruct, PointsIdsList, SearchPointsBuilder,
     UpsertPointsBuilder,
