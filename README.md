@@ -361,6 +361,15 @@ Compatibility notes:
 
 MIT. This project includes code derived from [langchain-rust](https://github.com/langchain-ai/langchain-rust); see [LICENSE](LICENSE).
 
+## Community and policies
+
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Security policy: [SECURITY.md](SECURITY.md)
+- Privacy notice: [PRIVACY.md](PRIVACY.md)
+- Support guide: [SUPPORT.md](SUPPORT.md)
+- Governance: [GOVERNANCE.md](GOVERNANCE.md)
+
 ## Links
 
 - [Crates.io](https://crates.io/crates/oris-runtime)

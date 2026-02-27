@@ -1,20 +1,27 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
-title: ''
-labels: ''
-assignees: ''
-
+about: Suggest a new capability or improvement
+title: "[Feature] "
+labels: ["enhancement"]
+assignees: []
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## Problem statement
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+What problem are you trying to solve?
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+## Proposed solution
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+Describe the behavior/API you want.
+
+## Alternatives considered
+
+What alternatives did you evaluate?
+
+## Impact
+
+Who benefits and what tradeoffs should we consider?
+
+## Additional context
+
+Links, examples, prior art, or mockups.
