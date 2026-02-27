@@ -255,6 +255,81 @@ impl PostgresRuntimeRepository {
             }))
         })
     }
+
+    pub fn get_lease_by_id(&self, lease_id: &str) -> Result<Option<LeaseRecord>, KernelError> {
+        self.ensure_schema()?;
+
+        let pool = self.pool()?.clone();
+        let rt = self.runtime()?;
+        let schema = self.schema.clone();
+        let lease_id = lease_id.to_string();
+        rt.block_on(async move {
+            let sql = format!(
+                "SELECT lease_id, attempt_id, worker_id, lease_expires_at_ms, heartbeat_at_ms, version
+                 FROM \"{}\".runtime_leases
+                 WHERE lease_id = $1",
+                schema
+            );
+            let row = sqlx::query(&sql)
+                .bind(&lease_id)
+                .fetch_optional(&pool)
+                .await
+                .map_err(|e| map_driver_err("get lease by id", e))?;
+            Ok(row.map(|row| LeaseRecord {
+                lease_id: row.get::<String, _>(0),
+                attempt_id: row.get::<String, _>(1),
+                worker_id: row.get::<String, _>(2),
+                lease_expires_at: ms_to_dt(row.get::<i64, _>(3)),
+                heartbeat_at: ms_to_dt(row.get::<i64, _>(4)),
+                version: row.get::<i64, _>(5) as u64,
+            }))
+        })
+    }
+
+    pub fn heartbeat_lease_with_version(
+        &self,
+        lease_id: &str,
+        worker_id: &str,
+        expected_version: u64,
+        heartbeat_at: DateTime<Utc>,
+        lease_expires_at: DateTime<Utc>,
+    ) -> Result<(), KernelError> {
+        self.ensure_schema()?;
+
+        let pool = self.pool()?.clone();
+        let rt = self.runtime()?;
+        let schema = self.schema.clone();
+        let lease_id = lease_id.to_string();
+        let worker_id = worker_id.to_string();
+        let expected_version = expected_version as i64;
+        let heartbeat_at_ms = dt_to_ms(heartbeat_at);
+        let lease_expires_at_ms = dt_to_ms(lease_expires_at);
+        rt.block_on(async move {
+            let sql = format!(
+                "UPDATE \"{}\".runtime_leases
+                 SET heartbeat_at_ms = $4, lease_expires_at_ms = $5, version = version + 1
+                 WHERE lease_id = $1 AND worker_id = $2 AND version = $3",
+                schema
+            );
+            let updated = sqlx::query(&sql)
+                .bind(&lease_id)
+                .bind(&worker_id)
+                .bind(expected_version)
+                .bind(heartbeat_at_ms)
+                .bind(lease_expires_at_ms)
+                .execute(&pool)
+                .await
+                .map_err(|e| map_driver_err("heartbeat lease with version", e))?
+                .rows_affected();
+            if updated == 0 {
+                return Err(KernelError::Driver(format!(
+                    "lease heartbeat version conflict for lease: {}",
+                    lease_id
+                )));
+            }
+            Ok(())
+        })
+    }
 }
 
 impl RuntimeRepository for PostgresRuntimeRepository {
@@ -338,6 +413,35 @@ impl RuntimeRepository for PostgresRuntimeRepository {
                 .await
                 .map_err(|e| map_driver_err("begin upsert lease tx", e))?;
 
+            // Serialize lease ownership change for one attempt to avoid split-brain races.
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+                .bind(&attempt_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| map_driver_err("advisory lock attempt", e))?;
+
+            let attempt_status_sql = format!(
+                "SELECT status FROM \"{}\".runtime_attempts WHERE attempt_id = $1 FOR UPDATE",
+                schema
+            );
+            let attempt_status: Option<String> = sqlx::query_scalar(&attempt_status_sql)
+                .bind(&attempt_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| map_driver_err("read attempt status", e))?;
+            let Some(status) = attempt_status else {
+                return Err(KernelError::Driver(format!(
+                    "attempt is not dispatchable for lease: {}",
+                    attempt_id
+                )));
+            };
+            if status != "queued" && status != "retry_backoff" {
+                return Err(KernelError::Driver(format!(
+                    "attempt is not dispatchable for lease: {}",
+                    attempt_id
+                )));
+            }
+
             let delete_sql = format!(
                 "DELETE FROM \"{}\".runtime_leases
                  WHERE attempt_id = $1 AND lease_expires_at_ms < $2",
@@ -378,21 +482,14 @@ impl RuntimeRepository for PostgresRuntimeRepository {
             let update_sql = format!(
                 "UPDATE \"{}\".runtime_attempts
                  SET status = 'leased'
-                 WHERE attempt_id = $1 AND status IN ('queued', 'retry_backoff')",
+                 WHERE attempt_id = $1",
                 schema
             );
-            let updated = sqlx::query(&update_sql)
+            sqlx::query(&update_sql)
                 .bind(&attempt_id)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| map_driver_err("mark leased status", e))?
-                .rows_affected();
-            if updated == 0 {
-                return Err(KernelError::Driver(format!(
-                    "attempt is not dispatchable for lease: {}",
-                    attempt_id
-                )));
-            }
+                .map_err(|e| map_driver_err("mark leased status", e))?;
 
             let version_sql = format!(
                 "SELECT version FROM \"{}\".runtime_leases WHERE attempt_id = $1",
@@ -472,28 +569,21 @@ impl RuntimeRepository for PostgresRuntimeRepository {
                 .await
                 .map_err(|e| map_driver_err("begin expire/requeue tx", e))?;
 
-            let select_sql = format!(
-                "SELECT attempt_id FROM \"{}\".runtime_leases WHERE lease_expires_at_ms < $1",
+            // Delete first and use RETURNING as the authoritative expired-attempt set.
+            let delete_sql = format!(
+                "DELETE FROM \"{}\".runtime_leases
+                 WHERE lease_expires_at_ms < $1
+                 RETURNING attempt_id",
                 schema
             );
-            let rows = sqlx::query(&select_sql)
+            let deleted_rows = sqlx::query(&delete_sql)
                 .bind(now_ms)
                 .fetch_all(&mut *tx)
                 .await
-                .map_err(|e| map_driver_err("query expired leases", e))?;
-            let attempt_ids: Vec<String> = rows.into_iter().map(|r| r.get(0)).collect();
+                .map_err(|e| map_driver_err("delete expired leases", e))?;
+            let attempt_ids: Vec<String> = deleted_rows.into_iter().map(|r| r.get(0)).collect();
 
             for attempt_id in &attempt_ids {
-                let delete_sql = format!(
-                    "DELETE FROM \"{}\".runtime_leases WHERE attempt_id = $1",
-                    schema
-                );
-                sqlx::query(&delete_sql)
-                    .bind(attempt_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| map_driver_err("delete expired lease", e))?;
-
                 let requeue_sql = format!(
                     "UPDATE \"{}\".runtime_attempts
                      SET status = 'queued'
@@ -522,12 +612,16 @@ impl RuntimeRepository for PostgresRuntimeRepository {
 
 #[cfg(all(test, feature = "sqlite-persistence"))]
 mod tests {
+    use std::sync::Arc;
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use chrono::{Duration, Utc};
 
     use super::PostgresRuntimeRepository;
-    use crate::kernel::runtime::{RuntimeRepository, SqliteRuntimeRepository};
+    use crate::kernel::runtime::{
+        RuntimeRepository, SchedulerDecision, SkeletonScheduler, SqliteRuntimeRepository,
+    };
 
     trait ContractHarness: RuntimeRepository {
         fn seed_attempt(&self, attempt_id: &str, run_id: &str);
@@ -629,5 +723,155 @@ mod tests {
         };
         let repo = PostgresRuntimeRepository::new(db_url).with_schema(test_schema());
         assert_dispatch_lease_requeue_contract(&repo, "postgres");
+    }
+
+    #[test]
+    fn postgres_concurrent_upsert_lease_has_single_winner_when_env_is_set() {
+        let Some(db_url) = test_db_url() else {
+            return;
+        };
+        let repo = Arc::new(PostgresRuntimeRepository::new(db_url).with_schema(test_schema()));
+        let run_id = "run-pg-concurrent";
+        let attempt_id = "attempt-pg-concurrent";
+        repo.enqueue_attempt(attempt_id, run_id)
+            .expect("enqueue postgres attempt");
+
+        let mut handles = Vec::new();
+        for idx in 0..8 {
+            let repo = repo.clone();
+            let attempt_id = attempt_id.to_string();
+            handles.push(thread::spawn(move || {
+                repo.upsert_lease(
+                    &attempt_id,
+                    &format!("worker-{}", idx),
+                    Utc::now() + Duration::seconds(30),
+                )
+            }));
+        }
+
+        let mut winners = Vec::new();
+        let mut failures = 0;
+        for handle in handles {
+            match handle.join().expect("join worker thread") {
+                Ok(lease) => winners.push(lease),
+                Err(_) => failures += 1,
+            }
+        }
+        assert_eq!(winners.len(), 1, "exactly one lease acquisition should win");
+        assert_eq!(failures, 7, "all other concurrent acquisitions should fail");
+
+        let active = repo
+            .get_lease_for_attempt(attempt_id)
+            .expect("get lease for attempt")
+            .expect("active lease exists");
+        assert_eq!(active.worker_id, winners[0].worker_id);
+        assert_eq!(active.attempt_id, attempt_id);
+    }
+
+    #[test]
+    fn postgres_heartbeat_with_version_enforces_ownership_when_env_is_set() {
+        let Some(db_url) = test_db_url() else {
+            return;
+        };
+        let repo = PostgresRuntimeRepository::new(db_url).with_schema(test_schema());
+        let run_id = "run-pg-owner";
+        let attempt_id = "attempt-pg-owner";
+        let now = Utc::now();
+
+        repo.enqueue_attempt(attempt_id, run_id)
+            .expect("enqueue postgres attempt");
+        let lease = repo
+            .upsert_lease(attempt_id, "owner-worker", now + Duration::seconds(20))
+            .expect("upsert lease");
+
+        let wrong_owner = repo.heartbeat_lease_with_version(
+            &lease.lease_id,
+            "other-worker",
+            lease.version,
+            now + Duration::seconds(1),
+            now + Duration::seconds(25),
+        );
+        assert!(
+            wrong_owner.is_err(),
+            "wrong worker must not heartbeat another lease"
+        );
+
+        let wrong_version = repo.heartbeat_lease_with_version(
+            &lease.lease_id,
+            "owner-worker",
+            lease.version + 1,
+            now + Duration::seconds(1),
+            now + Duration::seconds(25),
+        );
+        assert!(
+            wrong_version.is_err(),
+            "stale/invalid version must be rejected"
+        );
+
+        repo.heartbeat_lease_with_version(
+            &lease.lease_id,
+            "owner-worker",
+            lease.version,
+            now + Duration::seconds(1),
+            now + Duration::seconds(25),
+        )
+        .expect("owner heartbeat with matching version");
+
+        let stale_after_update = repo.heartbeat_lease_with_version(
+            &lease.lease_id,
+            "owner-worker",
+            lease.version,
+            now + Duration::seconds(2),
+            now + Duration::seconds(30),
+        );
+        assert!(
+            stale_after_update.is_err(),
+            "old version must not be reusable after version increments"
+        );
+
+        let latest = repo
+            .get_lease_by_id(&lease.lease_id)
+            .expect("get lease by id")
+            .expect("lease exists");
+        assert_eq!(latest.worker_id, "owner-worker");
+        assert_eq!(latest.version, lease.version + 1);
+    }
+
+    #[test]
+    fn postgres_scheduler_concurrent_dispatch_has_single_winner_when_env_is_set() {
+        let Some(db_url) = test_db_url() else {
+            return;
+        };
+        let repo = PostgresRuntimeRepository::new(db_url).with_schema(test_schema());
+        repo.enqueue_attempt("attempt-pg-scheduler", "run-pg-scheduler")
+            .expect("enqueue postgres attempt");
+
+        let scheduler_a = SkeletonScheduler::new(repo.clone());
+        let scheduler_b = SkeletonScheduler::new(repo.clone());
+
+        let handle_a = thread::spawn(move || scheduler_a.dispatch_one("worker-a"));
+        let handle_b = thread::spawn(move || scheduler_b.dispatch_one("worker-b"));
+
+        let decision_a = handle_a
+            .join()
+            .expect("join scheduler a")
+            .expect("decision a");
+        let decision_b = handle_b
+            .join()
+            .expect("join scheduler b")
+            .expect("decision b");
+
+        let decisions = [decision_a, decision_b];
+        let dispatched = decisions
+            .iter()
+            .filter(|d| matches!(d, SchedulerDecision::Dispatched { .. }))
+            .count();
+        let noops = decisions
+            .iter()
+            .filter(|d| matches!(d, SchedulerDecision::Noop))
+            .count();
+
+        assert_eq!(dispatched, 1, "only one scheduler dispatch should succeed");
+        assert_eq!(noops, 1, "one scheduler should observe conflict and noop");
     }
 }
