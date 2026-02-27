@@ -17,6 +17,7 @@ pub struct ErrorBody {
 pub enum ApiError {
     BadRequest(ErrorState),
     Unauthorized(ErrorState),
+    Forbidden(ErrorState),
     NotFound(ErrorState),
     Conflict(ErrorState),
     Internal(ErrorState),
@@ -58,6 +59,10 @@ impl ApiError {
         Self::Unauthorized(ErrorState::new(message))
     }
 
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::Forbidden(ErrorState::new(message))
+    }
+
     pub fn conflict(message: impl Into<String>) -> Self {
         Self::Conflict(ErrorState::new(message))
     }
@@ -71,6 +76,7 @@ impl ApiError {
         match &mut self {
             Self::BadRequest(s)
             | Self::Unauthorized(s)
+            | Self::Forbidden(s)
             | Self::NotFound(s)
             | Self::Conflict(s)
             | Self::Internal(s) => s.request_id = request_id,
@@ -82,6 +88,7 @@ impl ApiError {
         match &mut self {
             Self::BadRequest(s)
             | Self::Unauthorized(s)
+            | Self::Forbidden(s)
             | Self::NotFound(s)
             | Self::Conflict(s)
             | Self::Internal(s) => s.details = Some(details),
@@ -95,6 +102,7 @@ impl IntoResponse for ApiError {
         let (status, code, state) = match self {
             Self::BadRequest(s) => (StatusCode::BAD_REQUEST, "invalid_argument", s),
             Self::Unauthorized(s) => (StatusCode::UNAUTHORIZED, "unauthorized", s),
+            Self::Forbidden(s) => (StatusCode::FORBIDDEN, "forbidden", s),
             Self::NotFound(s) => (StatusCode::NOT_FOUND, "not_found", s),
             Self::Conflict(s) => (StatusCode::CONFLICT, "conflict", s),
             Self::Internal(s) => (StatusCode::INTERNAL_SERVER_ERROR, "internal", s),

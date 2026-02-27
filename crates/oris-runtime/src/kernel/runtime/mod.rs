@@ -21,7 +21,7 @@ pub mod sqlite_runtime_repository;
 #[cfg(feature = "execution-server")]
 pub use api_errors::ApiError;
 #[cfg(feature = "execution-server")]
-pub use api_handlers::{build_router, ExecutionApiState};
+pub use api_handlers::{build_router, ApiRole, ExecutionApiState};
 #[cfg(all(feature = "execution-server", feature = "sqlite-persistence"))]
 pub use api_idempotency::{IdempotencyRecord, SqliteIdempotencyStore};
 #[cfg(feature = "execution-server")]

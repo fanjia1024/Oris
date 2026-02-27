@@ -35,7 +35,7 @@ pub use reducer::{Reducer, StateUpdatedOnlyReducer};
 pub use runner::KernelRunner;
 #[cfg(feature = "execution-server")]
 pub use runtime::{
-    build_router, ApiEnvelope, ApiError, ApiMeta, CancelJobRequest, CancelJobResponse,
+    build_router, ApiEnvelope, ApiError, ApiMeta, ApiRole, CancelJobRequest, CancelJobResponse,
     CheckpointInspectResponse, ExecutionApiState, InterruptDetailResponse, InterruptListResponse,
     JobDetailResponse, JobHistoryItem, JobHistoryResponse, JobStateResponse, JobTimelineItem,
     JobTimelineResponse, ListJobsResponse, RejectInterruptRequest, ReplayJobRequest,

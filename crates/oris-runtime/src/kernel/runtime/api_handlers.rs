@@ -36,10 +36,44 @@ use super::scheduler::{SchedulerDecision, SkeletonScheduler};
 #[cfg(feature = "sqlite-persistence")]
 use super::sqlite_runtime_repository::{SqliteRuntimeRepository, StepReportWriteResult};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ApiRole {
+    Admin,
+    Operator,
+    Worker,
+}
+
+impl ApiRole {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Admin => "admin",
+            Self::Operator => "operator",
+            Self::Worker => "worker",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "admin" => Some(Self::Admin),
+            "operator" => Some(Self::Operator),
+            "worker" => Some(Self::Worker),
+            _ => None,
+        }
+    }
+}
+
+impl Default for ApiRole {
+    fn default() -> Self {
+        Self::Admin
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionApiAuthConfig {
     pub bearer_token: Option<String>,
+    pub bearer_role: ApiRole,
     pub api_key_hash: Option<String>,
+    pub api_key_role: ApiRole,
     pub keyed_api_keys: HashMap<String, StaticApiKeyConfig>,
 }
 
@@ -47,6 +81,7 @@ pub struct ExecutionApiAuthConfig {
 pub struct StaticApiKeyConfig {
     pub secret_hash: String,
     pub active: bool,
+    pub role: ApiRole,
 }
 
 impl ExecutionApiAuthConfig {
@@ -85,12 +120,14 @@ impl ExecutionApiAuthConfig {
     fn from_optional(bearer_token: Option<String>, api_key: Option<String>) -> Self {
         Self {
             bearer_token: Self::normalize_secret(bearer_token),
+            bearer_role: ApiRole::Admin,
             api_key_hash: Self::normalize_hashed_secret(api_key),
+            api_key_role: ApiRole::Admin,
             keyed_api_keys: HashMap::new(),
         }
     }
 
-    fn set_keyed_api_key(&mut self, key_id: String, secret: String, active: bool) {
+    fn set_keyed_api_key(&mut self, key_id: String, secret: String, active: bool, role: ApiRole) {
         if let (Some(key_id), Some(secret)) = (
             Self::normalize_key_id(Some(key_id)),
             Self::normalize_secret(Some(secret)),
@@ -100,6 +137,7 @@ impl ExecutionApiAuthConfig {
                 StaticApiKeyConfig {
                     secret_hash: Self::secret_hash(secret.as_str()),
                     active,
+                    role,
                 },
             );
         }
@@ -164,13 +202,37 @@ impl ExecutionApiState {
         self
     }
 
+    pub fn with_static_auth_roles(mut self, bearer_role: ApiRole, api_key_role: ApiRole) -> Self {
+        self.auth.bearer_role = bearer_role;
+        self.auth.api_key_role = api_key_role;
+        self
+    }
+
     pub fn with_static_bearer_token(mut self, token: impl Into<String>) -> Self {
         self.auth.bearer_token = ExecutionApiAuthConfig::normalize_secret(Some(token.into()));
+        self.auth.bearer_role = ApiRole::Admin;
+        self
+    }
+
+    pub fn with_static_bearer_token_with_role(
+        mut self,
+        token: impl Into<String>,
+        role: ApiRole,
+    ) -> Self {
+        self.auth.bearer_token = ExecutionApiAuthConfig::normalize_secret(Some(token.into()));
+        self.auth.bearer_role = role;
         self
     }
 
     pub fn with_static_api_key(mut self, key: impl Into<String>) -> Self {
         self.auth.api_key_hash = ExecutionApiAuthConfig::normalize_hashed_secret(Some(key.into()));
+        self.auth.api_key_role = ApiRole::Admin;
+        self
+    }
+
+    pub fn with_static_api_key_with_role(mut self, key: impl Into<String>, role: ApiRole) -> Self {
+        self.auth.api_key_hash = ExecutionApiAuthConfig::normalize_hashed_secret(Some(key.into()));
+        self.auth.api_key_role = role;
         self
     }
 
@@ -181,7 +243,19 @@ impl ExecutionApiState {
         active: bool,
     ) -> Self {
         self.auth
-            .set_keyed_api_key(key_id.into(), secret.into(), active);
+            .set_keyed_api_key(key_id.into(), secret.into(), active, ApiRole::Operator);
+        self
+    }
+
+    pub fn with_static_api_key_record_with_role(
+        mut self,
+        key_id: impl Into<String>,
+        secret: impl Into<String>,
+        active: bool,
+        role: ApiRole,
+    ) -> Self {
+        self.auth
+            .set_keyed_api_key(key_id.into(), secret.into(), active, role);
         self
     }
 
@@ -192,6 +266,17 @@ impl ExecutionApiState {
         secret: impl Into<String>,
         active: bool,
     ) -> Self {
+        self.with_persisted_api_key_record_with_role(key_id, secret, active, ApiRole::Operator)
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    pub fn with_persisted_api_key_record_with_role(
+        self,
+        key_id: impl Into<String>,
+        secret: impl Into<String>,
+        active: bool,
+        role: ApiRole,
+    ) -> Self {
         let key_id = key_id.into();
         let secret = secret.into();
         if let Some(repo) = self.runtime_repo.as_ref() {
@@ -199,6 +284,7 @@ impl ExecutionApiState {
                 &key_id,
                 &ExecutionApiAuthConfig::secret_hash(secret.as_str()),
                 active,
+                role.as_str(),
             );
         }
         self
@@ -296,52 +382,67 @@ fn api_key_id_from_headers(headers: &HeaderMap) -> Option<&str> {
         .filter(|v| !v.is_empty())
 }
 
-fn is_authorized(headers: &HeaderMap, auth: &ExecutionApiAuthConfig) -> bool {
-    let bearer_ok = auth
+fn authenticate_static(headers: &HeaderMap, auth: &ExecutionApiAuthConfig) -> Option<ApiRole> {
+    if auth
         .bearer_token
         .as_deref()
         .zip(bearer_token_from_headers(headers))
         .map(|(expected, actual)| expected == actual)
-        .unwrap_or(false);
-    let api_key_ok = auth
+        .unwrap_or(false)
+    {
+        return Some(auth.bearer_role.clone());
+    }
+
+    if auth
         .api_key_hash
         .as_deref()
         .zip(api_key_from_headers(headers))
         .map(|(expected_hash, actual)| expected_hash == ExecutionApiAuthConfig::secret_hash(actual))
-        .unwrap_or(false);
-    let keyed_api_key_ok = api_key_id_from_headers(headers)
+        .unwrap_or(false)
+    {
+        return Some(auth.api_key_role.clone());
+    }
+
+    api_key_id_from_headers(headers)
         .zip(api_key_from_headers(headers))
         .and_then(|(key_id, secret)| {
-            auth.keyed_api_keys.get(key_id).map(|config| {
-                config.active && config.secret_hash == ExecutionApiAuthConfig::secret_hash(secret)
+            auth.keyed_api_keys.get(key_id).and_then(|config| {
+                if config.active
+                    && config.secret_hash == ExecutionApiAuthConfig::secret_hash(secret)
+                {
+                    Some(config.role.clone())
+                } else {
+                    None
+                }
             })
         })
-        .unwrap_or(false);
-    bearer_ok || api_key_ok || keyed_api_key_ok
 }
 
 #[cfg(feature = "sqlite-persistence")]
-fn is_authorized_via_runtime_repo(headers: &HeaderMap, state: &ExecutionApiState) -> bool {
+fn authenticate_runtime_repo(headers: &HeaderMap, state: &ExecutionApiState) -> Option<ApiRole> {
     let Some(repo) = state.runtime_repo.as_ref() else {
-        return false;
+        return None;
     };
     let Some(key_id) = api_key_id_from_headers(headers) else {
-        return false;
+        return None;
     };
     let Some(secret) = api_key_from_headers(headers) else {
-        return false;
+        return None;
     };
     match repo.get_api_key_record(key_id) {
-        Ok(Some(record)) => {
-            record.active && record.secret_hash == ExecutionApiAuthConfig::secret_hash(secret)
+        Ok(Some(record))
+            if record.active
+                && record.secret_hash == ExecutionApiAuthConfig::secret_hash(secret) =>
+        {
+            Some(ApiRole::from_str(&record.role).unwrap_or(ApiRole::Operator))
         }
-        _ => false,
+        _ => None,
     }
 }
 
 #[cfg(not(feature = "sqlite-persistence"))]
-fn is_authorized_via_runtime_repo(_headers: &HeaderMap, _state: &ExecutionApiState) -> bool {
-    false
+fn authenticate_runtime_repo(_headers: &HeaderMap, _state: &ExecutionApiState) -> Option<ApiRole> {
+    None
 }
 
 #[cfg(feature = "sqlite-persistence")]
@@ -358,20 +459,23 @@ fn has_runtime_repo_api_keys(_state: &ExecutionApiState) -> bool {
     false
 }
 
-async fn auth_middleware(
-    State(state): State<ExecutionApiState>,
-    headers: HeaderMap,
-    request: axum::extract::Request,
-    next: Next,
-) -> axum::response::Response {
-    let auth_enabled = state.auth.is_enabled() || has_runtime_repo_api_keys(&state);
-    if !auth_enabled
-        || is_authorized(&headers, &state.auth)
-        || is_authorized_via_runtime_repo(&headers, &state)
-    {
-        return next.run(request).await;
+fn role_can_access(role: &ApiRole, method: &axum::http::Method, path: &str) -> bool {
+    if matches!(role, ApiRole::Admin) {
+        return true;
     }
+    let is_jobs_or_interrupts = path.starts_with("/v1/jobs") || path.starts_with("/v1/interrupts");
+    let is_workers = path.starts_with("/v1/workers");
+    match role {
+        ApiRole::Operator => is_jobs_or_interrupts,
+        ApiRole::Worker => {
+            // Worker role can only call worker control/data-plane endpoints.
+            is_workers && *method != axum::http::Method::GET
+        }
+        ApiRole::Admin => true,
+    }
+}
 
+fn supported_auth_methods(state: &ExecutionApiState) -> Vec<&'static str> {
     let mut methods = Vec::new();
     if state.auth.bearer_token.is_some() {
         methods.push("bearer");
@@ -382,15 +486,49 @@ async fn auth_middleware(
     if !state.auth.keyed_api_keys.is_empty() {
         methods.push("x-api-key-id+x-api-key");
     }
-    if has_runtime_repo_api_keys(&state) {
+    if has_runtime_repo_api_keys(state) {
         methods.push("sqlite:x-api-key-id+x-api-key");
     }
+    methods
+}
 
-    let rid = request_id(&headers);
-    ApiError::unauthorized("missing or invalid credentials")
-        .with_request_id(rid)
-        .with_details(serde_json::json!({ "supported_auth": methods }))
-        .into_response()
+async fn auth_middleware(
+    State(state): State<ExecutionApiState>,
+    headers: HeaderMap,
+    request: axum::extract::Request,
+    next: Next,
+) -> axum::response::Response {
+    let auth_enabled = state.auth.is_enabled() || has_runtime_repo_api_keys(&state);
+    if !auth_enabled {
+        return next.run(request).await;
+    }
+
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+
+    let role = authenticate_static(&headers, &state.auth)
+        .or_else(|| authenticate_runtime_repo(&headers, &state));
+    let Some(role) = role else {
+        let rid = request_id(&headers);
+        return ApiError::unauthorized("missing or invalid credentials")
+            .with_request_id(rid)
+            .with_details(serde_json::json!({ "supported_auth": supported_auth_methods(&state) }))
+            .into_response();
+    };
+
+    if !role_can_access(&role, &method, &path) {
+        let rid = request_id(&headers);
+        return ApiError::forbidden("role is not allowed to access this endpoint")
+            .with_request_id(rid)
+            .with_details(serde_json::json!({
+                "role": role.as_str(),
+                "method": method.as_str(),
+                "path": path
+            }))
+            .into_response();
+    }
+
+    next.run(request).await
 }
 
 async fn request_log_middleware(
@@ -1588,7 +1726,7 @@ mod tests {
     use crate::kernel::runtime::repository::RuntimeRepository;
     use crate::schemas::messages::Message;
 
-    use super::{build_router, ExecutionApiState};
+    use super::{build_router, ApiRole, ExecutionApiState};
 
     async fn build_test_graph() -> Arc<crate::graph::CompiledGraph<MessagesState>> {
         let node = function_node("research", |_state: &MessagesState| async move {
@@ -1895,6 +2033,114 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_worker_role_cannot_run_jobs() {
+        let router = build_router(
+            ExecutionApiState::new(build_test_graph().await).with_static_api_key_record_with_role(
+                "worker-key-1",
+                "worker-secret-1",
+                true,
+                ApiRole::Worker,
+            ),
+        );
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/jobs/run")
+            .header("x-api-key-id", "worker-key-1")
+            .header("x-api-key", "worker-secret-1")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "thread_id": "auth-run-10"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn auth_worker_role_can_access_worker_endpoints() {
+        let router = build_router(
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+                .with_static_api_key_record_with_role(
+                    "worker-key-2",
+                    "worker-secret-2",
+                    true,
+                    ApiRole::Worker,
+                ),
+        );
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("x-api-key-id", "worker-key-2")
+            .header("x-api-key", "worker-secret-2")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-rbac-1"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn auth_operator_role_cannot_access_worker_endpoints() {
+        let router = build_router(
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+                .with_static_api_key_record_with_role(
+                    "operator-key-1",
+                    "operator-secret-1",
+                    true,
+                    ApiRole::Operator,
+                ),
+        );
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("x-api-key-id", "operator-key-1")
+            .header("x-api-key", "operator-secret-1")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-rbac-2"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn auth_admin_role_can_access_worker_endpoints() {
+        let router = build_router(
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+                .with_static_api_key_with_role("admin-secret-1", ApiRole::Admin),
+        );
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("x-api-key", "admin-secret-1")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-rbac-3"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
     #[tokio::test]

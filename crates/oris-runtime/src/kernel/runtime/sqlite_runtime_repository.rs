@@ -82,6 +82,7 @@ impl SqliteRuntimeRepository {
             CREATE TABLE IF NOT EXISTS runtime_api_keys (
               key_id TEXT PRIMARY KEY,
               secret_hash TEXT NOT NULL,
+              role TEXT NOT NULL DEFAULT 'operator',
               status TEXT NOT NULL,
               created_at_ms INTEGER NOT NULL,
               updated_at_ms INTEGER NOT NULL
@@ -110,6 +111,12 @@ impl SqliteRuntimeRepository {
             "TEXT NULL",
         )?;
         add_column_if_missing(&conn, "runtime_interrupts", "resumed_at_ms", "INTEGER NULL")?;
+        add_column_if_missing(
+            &conn,
+            "runtime_api_keys",
+            "role",
+            "TEXT NOT NULL DEFAULT 'operator'",
+        )?;
         Ok(())
     }
 
@@ -574,6 +581,7 @@ impl SqliteRuntimeRepository {
         key_id: &str,
         secret_hash: &str,
         active: bool,
+        role: &str,
     ) -> Result<(), KernelError> {
         let now = dt_to_ms(Utc::now());
         let status = if active { "active" } else { "disabled" };
@@ -582,11 +590,11 @@ impl SqliteRuntimeRepository {
             .lock()
             .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
         conn.execute(
-            "INSERT INTO runtime_api_keys (key_id, secret_hash, status, created_at_ms, updated_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?4)
+            "INSERT INTO runtime_api_keys (key_id, secret_hash, role, status, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)
              ON CONFLICT(key_id)
-             DO UPDATE SET secret_hash = excluded.secret_hash, status = excluded.status, updated_at_ms = excluded.updated_at_ms",
-            params![key_id, secret_hash, status, now],
+             DO UPDATE SET secret_hash = excluded.secret_hash, role = excluded.role, status = excluded.status, updated_at_ms = excluded.updated_at_ms",
+            params![key_id, secret_hash, role, status, now],
         )
         .map_err(|e| KernelError::Driver(format!("upsert api key: {}", e)))?;
         Ok(())
@@ -599,7 +607,7 @@ impl SqliteRuntimeRepository {
             .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
         let mut stmt = conn
             .prepare(
-                "SELECT key_id, secret_hash, status, created_at_ms, updated_at_ms
+                "SELECT key_id, secret_hash, role, status, created_at_ms, updated_at_ms
                  FROM runtime_api_keys WHERE key_id = ?1",
             )
             .map_err(|e| KernelError::Driver(format!("prepare get_api_key_record: {}", e)))?;
@@ -610,13 +618,14 @@ impl SqliteRuntimeRepository {
             .next()
             .map_err(|e| KernelError::Driver(format!("scan get_api_key_record: {}", e)))?
         {
-            let status: String = row.get(2).map_err(map_rusqlite_err)?;
+            let status: String = row.get(3).map_err(map_rusqlite_err)?;
             Ok(Some(ApiKeyRow {
                 key_id: row.get(0).map_err(map_rusqlite_err)?,
                 secret_hash: row.get(1).map_err(map_rusqlite_err)?,
+                role: row.get(2).map_err(map_rusqlite_err)?,
                 active: status == "active",
-                created_at: ms_to_dt(row.get::<_, i64>(3).map_err(map_rusqlite_err)?),
-                updated_at: ms_to_dt(row.get::<_, i64>(4).map_err(map_rusqlite_err)?),
+                created_at: ms_to_dt(row.get::<_, i64>(4).map_err(map_rusqlite_err)?),
+                updated_at: ms_to_dt(row.get::<_, i64>(5).map_err(map_rusqlite_err)?),
             }))
         } else {
             Ok(None)
@@ -688,6 +697,7 @@ pub struct InterruptRow {
 pub struct ApiKeyRow {
     pub key_id: String,
     pub secret_hash: String,
+    pub role: String,
     pub active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
