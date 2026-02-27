@@ -290,6 +290,7 @@ Default address: `127.0.0.1:8080` (`ORIS_SERVER_ADDR` to override)
 Default SQLite db path: `oris_execution_server.db` (`ORIS_SQLITE_DB` to override)
 Optional auth secrets: `ORIS_API_AUTH_BEARER_TOKEN`, `ORIS_API_AUTH_API_KEY`
 Optional keyed API key id: `ORIS_API_AUTH_API_KEY_ID` (use with `ORIS_API_AUTH_API_KEY`)
+When `ORIS_API_AUTH_API_KEY_ID` is set with SQLite persistence, the key record is persisted in `runtime_api_keys`.
 
 Execution server endpoints (v1 runtime-bin):
 

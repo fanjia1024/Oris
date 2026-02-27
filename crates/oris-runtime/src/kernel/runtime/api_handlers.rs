@@ -184,6 +184,25 @@ impl ExecutionApiState {
             .set_keyed_api_key(key_id.into(), secret.into(), active);
         self
     }
+
+    #[cfg(feature = "sqlite-persistence")]
+    pub fn with_persisted_api_key_record(
+        self,
+        key_id: impl Into<String>,
+        secret: impl Into<String>,
+        active: bool,
+    ) -> Self {
+        let key_id = key_id.into();
+        let secret = secret.into();
+        if let Some(repo) = self.runtime_repo.as_ref() {
+            let _ = repo.upsert_api_key_record(
+                &key_id,
+                &ExecutionApiAuthConfig::secret_hash(secret.as_str()),
+                active,
+            );
+        }
+        self
+    }
 }
 
 pub fn build_router(state: ExecutionApiState) -> Router {
@@ -301,13 +320,55 @@ fn is_authorized(headers: &HeaderMap, auth: &ExecutionApiAuthConfig) -> bool {
     bearer_ok || api_key_ok || keyed_api_key_ok
 }
 
+#[cfg(feature = "sqlite-persistence")]
+fn is_authorized_via_runtime_repo(headers: &HeaderMap, state: &ExecutionApiState) -> bool {
+    let Some(repo) = state.runtime_repo.as_ref() else {
+        return false;
+    };
+    let Some(key_id) = api_key_id_from_headers(headers) else {
+        return false;
+    };
+    let Some(secret) = api_key_from_headers(headers) else {
+        return false;
+    };
+    match repo.get_api_key_record(key_id) {
+        Ok(Some(record)) => {
+            record.active && record.secret_hash == ExecutionApiAuthConfig::secret_hash(secret)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(not(feature = "sqlite-persistence"))]
+fn is_authorized_via_runtime_repo(_headers: &HeaderMap, _state: &ExecutionApiState) -> bool {
+    false
+}
+
+#[cfg(feature = "sqlite-persistence")]
+fn has_runtime_repo_api_keys(state: &ExecutionApiState) -> bool {
+    state
+        .runtime_repo
+        .as_ref()
+        .and_then(|repo| repo.has_any_api_keys().ok())
+        .unwrap_or(false)
+}
+
+#[cfg(not(feature = "sqlite-persistence"))]
+fn has_runtime_repo_api_keys(_state: &ExecutionApiState) -> bool {
+    false
+}
+
 async fn auth_middleware(
     State(state): State<ExecutionApiState>,
     headers: HeaderMap,
     request: axum::extract::Request,
     next: Next,
 ) -> axum::response::Response {
-    if !state.auth.is_enabled() || is_authorized(&headers, &state.auth) {
+    let auth_enabled = state.auth.is_enabled() || has_runtime_repo_api_keys(&state);
+    if !auth_enabled
+        || is_authorized(&headers, &state.auth)
+        || is_authorized_via_runtime_repo(&headers, &state)
+    {
         return next.run(request).await;
     }
 
@@ -320,6 +381,9 @@ async fn auth_middleware(
     }
     if !state.auth.keyed_api_keys.is_empty() {
         methods.push("x-api-key-id+x-api-key");
+    }
+    if has_runtime_repo_api_keys(&state) {
+        methods.push("sqlite:x-api-key-id+x-api-key");
     }
 
     let rid = request_id(&headers);
@@ -1752,6 +1816,79 @@ mod tests {
             .body(Body::from(
                 serde_json::json!({
                     "thread_id": "auth-run-6"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn auth_sqlite_api_key_record_allows_access() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+                .with_persisted_api_key_record("db-key-1", "db-secret-1", true);
+        let router = build_router(state);
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/jobs/run")
+            .header("x-api-key-id", "db-key-1")
+            .header("x-api-key", "db-secret-1")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "thread_id": "auth-run-7"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn auth_sqlite_disabled_api_key_is_rejected() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+                .with_persisted_api_key_record("db-key-2", "db-secret-2", true);
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        repo.set_api_key_status("db-key-2", false)
+            .expect("disable api key");
+        let router = build_router(state);
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/jobs/run")
+            .header("x-api-key-id", "db-key-2")
+            .header("x-api-key", "db-secret-2")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "thread_id": "auth-run-8"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn auth_sqlite_api_key_table_enforces_auth() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+                .with_persisted_api_key_record("db-key-3", "db-secret-3", false);
+        let router = build_router(state);
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/jobs/run")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "thread_id": "auth-run-9"
                 })
                 .to_string(),
             ))

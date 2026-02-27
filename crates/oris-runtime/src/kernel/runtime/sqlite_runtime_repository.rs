@@ -79,12 +79,20 @@ impl SqliteRuntimeRepository {
               created_at_ms INTEGER NOT NULL,
               UNIQUE(attempt_id, dedupe_token)
             );
+            CREATE TABLE IF NOT EXISTS runtime_api_keys (
+              key_id TEXT PRIMARY KEY,
+              secret_hash TEXT NOT NULL,
+              status TEXT NOT NULL,
+              created_at_ms INTEGER NOT NULL,
+              updated_at_ms INTEGER NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_runtime_attempts_status_retry ON runtime_attempts(status, retry_at_ms);
             CREATE INDEX IF NOT EXISTS idx_runtime_leases_expiry ON runtime_leases(lease_expires_at_ms);
             CREATE INDEX IF NOT EXISTS idx_runtime_interrupts_status ON runtime_interrupts(status);
             CREATE INDEX IF NOT EXISTS idx_runtime_interrupts_thread ON runtime_interrupts(thread_id);
             CREATE INDEX IF NOT EXISTS idx_runtime_jobs_status ON runtime_jobs(status);
             CREATE INDEX IF NOT EXISTS idx_runtime_step_reports_attempt ON runtime_step_reports(attempt_id, created_at_ms DESC);
+            CREATE INDEX IF NOT EXISTS idx_runtime_api_keys_status ON runtime_api_keys(status);
             "#,
         )
         .map_err(|e| KernelError::Driver(format!("init sqlite runtime schema: {}", e)))?;
@@ -560,6 +568,93 @@ impl SqliteRuntimeRepository {
             Err(e) => Err(KernelError::Driver(format!("record step report: {}", e))),
         }
     }
+
+    pub fn upsert_api_key_record(
+        &self,
+        key_id: &str,
+        secret_hash: &str,
+        active: bool,
+    ) -> Result<(), KernelError> {
+        let now = dt_to_ms(Utc::now());
+        let status = if active { "active" } else { "disabled" };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        conn.execute(
+            "INSERT INTO runtime_api_keys (key_id, secret_hash, status, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?4)
+             ON CONFLICT(key_id)
+             DO UPDATE SET secret_hash = excluded.secret_hash, status = excluded.status, updated_at_ms = excluded.updated_at_ms",
+            params![key_id, secret_hash, status, now],
+        )
+        .map_err(|e| KernelError::Driver(format!("upsert api key: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn get_api_key_record(&self, key_id: &str) -> Result<Option<ApiKeyRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT key_id, secret_hash, status, created_at_ms, updated_at_ms
+                 FROM runtime_api_keys WHERE key_id = ?1",
+            )
+            .map_err(|e| KernelError::Driver(format!("prepare get_api_key_record: {}", e)))?;
+        let mut rows = stmt
+            .query(params![key_id])
+            .map_err(|e| KernelError::Driver(format!("query get_api_key_record: {}", e)))?;
+        if let Some(row) = rows
+            .next()
+            .map_err(|e| KernelError::Driver(format!("scan get_api_key_record: {}", e)))?
+        {
+            let status: String = row.get(2).map_err(map_rusqlite_err)?;
+            Ok(Some(ApiKeyRow {
+                key_id: row.get(0).map_err(map_rusqlite_err)?,
+                secret_hash: row.get(1).map_err(map_rusqlite_err)?,
+                active: status == "active",
+                created_at: ms_to_dt(row.get::<_, i64>(3).map_err(map_rusqlite_err)?),
+                updated_at: ms_to_dt(row.get::<_, i64>(4).map_err(map_rusqlite_err)?),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_api_key_status(&self, key_id: &str, active: bool) -> Result<(), KernelError> {
+        let now = dt_to_ms(Utc::now());
+        let status = if active { "active" } else { "disabled" };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_api_keys SET status = ?2, updated_at_ms = ?3 WHERE key_id = ?1",
+                params![key_id, status, now],
+            )
+            .map_err(|e| KernelError::Driver(format!("set api key status: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "api key not found: {}",
+                key_id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn has_any_api_keys(&self) -> Result<bool, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM runtime_api_keys", [], |r| r.get(0))
+            .map_err(|e| KernelError::Driver(format!("count api keys: {}", e)))?;
+        Ok(count > 0)
+    }
 }
 
 fn map_row_to_interrupt(row: &rusqlite::Row) -> rusqlite::Result<InterruptRow> {
@@ -587,6 +682,15 @@ pub struct InterruptRow {
     pub created_at: DateTime<Utc>,
     pub resume_payload_hash: Option<String>,
     pub resume_response_json: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ApiKeyRow {
+    pub key_id: String,
+    pub secret_hash: String,
+    pub active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

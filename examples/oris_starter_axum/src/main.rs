@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
             .with_static_auth(bearer_token.clone(), api_key.clone())
     };
     if let (Some(key_id), Some(secret)) = (api_key_id.clone(), api_key.clone()) {
-        state = state.with_static_api_key_record(key_id, secret, true);
+        state = state.with_persisted_api_key_record(key_id, secret, true);
     }
 
     let app = Router::new()
