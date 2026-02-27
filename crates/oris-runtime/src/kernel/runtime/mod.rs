@@ -11,8 +11,12 @@ pub mod api_handlers;
 pub mod api_idempotency;
 #[cfg(feature = "execution-server")]
 pub mod api_models;
+#[cfg(feature = "sqlite-persistence")]
+pub mod backend_config;
 pub mod lease;
 pub mod models;
+#[cfg(feature = "kernel-postgres")]
+pub mod postgres_runtime_repository;
 pub mod repository;
 pub mod scheduler;
 #[cfg(feature = "sqlite-persistence")]
@@ -35,11 +39,15 @@ pub use api_models::{
     WorkerHeartbeatRequest, WorkerLeaseResponse, WorkerPollRequest, WorkerPollResponse,
     WorkerReportStepRequest,
 };
+#[cfg(feature = "sqlite-persistence")]
+pub use backend_config::{RuntimeStorageBackend, RuntimeStorageConfig};
 pub use lease::{LeaseConfig, LeaseManager, LeaseTickResult, RepositoryLeaseManager};
 pub use models::{
     AttemptDispatchRecord, AttemptExecutionStatus, InterruptRecord, LeaseRecord, RunRecord,
     RunRuntimeStatus,
 };
+#[cfg(feature = "kernel-postgres")]
+pub use postgres_runtime_repository::PostgresRuntimeRepository;
 pub use repository::RuntimeRepository;
 pub use scheduler::{SchedulerDecision, SkeletonScheduler};
 #[cfg(feature = "sqlite-persistence")]
