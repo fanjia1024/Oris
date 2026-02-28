@@ -16,6 +16,8 @@ Patch release for `oris-runtime` that restores PostgreSQL runtime persistence pa
 - cargo test -p oris-runtime --features "sqlite-persistence,kernel-postgres" kernel::runtime::postgres_runtime_repository::tests::postgres_schema_migration_ -- --nocapture --test-threads=1
 - cargo build --verbose --all --release --all-features
 - cargo test --release --all-features
+- cargo publish -p oris-runtime --all-features --dry-run --registry crates-io
+- cargo publish -p oris-runtime --all-features --registry crates-io
 
 ## Links
 
