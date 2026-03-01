@@ -37,17 +37,19 @@ pub use runner::KernelRunner;
 pub use runtime::PostgresRuntimeRepository;
 #[cfg(feature = "execution-server")]
 pub use runtime::{
-    build_router, ApiEnvelope, ApiError, ApiMeta, ApiRole, AttemptRetryHistoryItem,
-    AttemptRetryHistoryResponse, AuditLogItem, AuditLogListResponse, CancelJobRequest,
-    CancelJobResponse, CheckpointInspectResponse, DeadLetterItem, DeadLetterListResponse,
-    DeadLetterReplayResponse, ExecutionApiState, InterruptDetailResponse, InterruptListResponse,
-    JobDetailResponse, JobHistoryItem, JobHistoryResponse, JobStateResponse, JobTimelineItem,
-    JobTimelineResponse, ListAuditLogsQuery, ListDeadLettersQuery, ListJobsResponse,
+    build_router, canonical_runtime_api_contract_path, generate_runtime_api_contract,
+    runtime_api_contract_pretty_json, write_runtime_api_contract, ApiEnvelope, ApiError, ApiMeta,
+    ApiRole, AttemptRetryHistoryItem, AttemptRetryHistoryResponse, AuditLogItem,
+    AuditLogListResponse, CancelJobRequest, CancelJobResponse, CheckpointInspectResponse,
+    DeadLetterItem, DeadLetterListResponse, DeadLetterReplayResponse, ExecutionApiState,
+    InterruptDetailResponse, InterruptListResponse, JobDetailResponse, JobHistoryItem,
+    JobHistoryResponse, JobStateResponse, JobTimelineItem, JobTimelineResponse, ListAuditLogsQuery,
+    ListDeadLettersQuery, ListInterruptsQuery, ListJobsQuery, ListJobsResponse,
     RejectInterruptRequest, ReplayJobRequest, ResumeInterruptRequest, ResumeJobRequest,
-    RetryPolicyRequest, RunJobRequest, RunJobResponse, TimeoutPolicyRequest,
-    TimelineExportResponse, TraceContextResponse, WorkerAckRequest,
-    WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse,
-    WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
+    RetryPolicyRequest, RunJobRequest, RunJobResponse, TimelineExportResponse,
+    TimeoutPolicyRequest, TraceContextResponse, WorkerAckRequest, WorkerAckResponse,
+    WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse, WorkerPollRequest,
+    WorkerPollResponse, WorkerReportStepRequest, RUNTIME_API_CONTRACT_DOC_PATH,
 };
 pub use runtime::{
     AttemptDispatchRecord, AttemptExecutionStatus, InterruptRecord, LeaseConfig, LeaseManager,

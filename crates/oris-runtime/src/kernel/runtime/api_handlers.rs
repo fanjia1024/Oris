@@ -30,11 +30,12 @@ use super::api_models::{
     DeadLetterItem, DeadLetterListResponse, DeadLetterReplayResponse, InterruptDetailResponse,
     InterruptListItem, InterruptListResponse, JobDetailResponse, JobHistoryItem,
     JobHistoryResponse, JobListItem, JobStateResponse, JobTimelineItem, JobTimelineResponse,
-    ListAuditLogsQuery, ListDeadLettersQuery, ListJobsResponse, RejectInterruptRequest,
-    ReplayJobRequest, ResumeInterruptRequest, ResumeJobRequest, RetryPolicyRequest, RunJobRequest,
-    RunJobResponse, TimelineExportResponse, TimeoutPolicyRequest, TraceContextResponse,
-    WorkerAckRequest, WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest,
-    WorkerLeaseResponse, WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
+    ListAuditLogsQuery, ListDeadLettersQuery, ListInterruptsQuery, ListJobsQuery, ListJobsResponse,
+    RejectInterruptRequest, ReplayJobRequest, ResumeInterruptRequest, ResumeJobRequest,
+    RetryPolicyRequest, RunJobRequest, RunJobResponse, TimelineExportResponse,
+    TimeoutPolicyRequest, TraceContextResponse, WorkerAckRequest, WorkerAckResponse,
+    WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse, WorkerPollRequest,
+    WorkerPollResponse, WorkerReportStepRequest,
 };
 use super::lease::{LeaseConfig, LeaseManager, RepositoryLeaseManager};
 use super::models::AttemptExecutionStatus;
@@ -1976,13 +1977,6 @@ pub async fn cancel_job(
     }))
 }
 
-#[derive(serde::Deserialize)]
-pub struct ListJobsQuery {
-    pub status: Option<String>,
-    pub limit: Option<usize>,
-    pub offset: Option<usize>,
-}
-
 pub async fn list_jobs(
     State(state): State<ExecutionApiState>,
     headers: HeaderMap,
@@ -2021,13 +2015,6 @@ pub async fn list_jobs(
             data: ListJobsResponse { jobs: vec![] },
         }))
     }
-}
-
-#[derive(serde::Deserialize)]
-pub struct ListInterruptsQuery {
-    pub status: Option<String>,
-    pub run_id: Option<String>,
-    pub limit: Option<usize>,
 }
 
 pub async fn list_interrupts(

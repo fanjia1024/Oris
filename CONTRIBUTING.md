@@ -32,6 +32,7 @@ Run these before opening a PR:
 
 ```bash
 cargo fmt --all
+bash scripts/update_runtime_api_contract.sh
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
@@ -81,6 +82,10 @@ For scheduler failover/conflict changes, the stress suite is the fast regression
 Baseline output reference:
 
 - [docs/scheduler-stress-baseline.md](docs/scheduler-stress-baseline.md)
+
+Runtime API contract:
+
+- Canonical artifact: [docs/runtime-api-contract.json](docs/runtime-api-contract.json)
 
 ## Pull request expectations
 

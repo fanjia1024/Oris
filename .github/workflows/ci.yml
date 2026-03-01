@@ -71,6 +71,11 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
+      - name: Validate runtime API contract drift
+        shell: bash
+        run: |
+          bash scripts/update_runtime_api_contract.sh
+          git diff --exit-code -- docs/runtime-api-contract.json
       - name: Build release
         uses: actions-rs/cargo@v1
         with:

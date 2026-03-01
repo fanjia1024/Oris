@@ -4,6 +4,8 @@
 //! without changing existing kernel behavior.
 
 #[cfg(feature = "execution-server")]
+pub mod api_contract;
+#[cfg(feature = "execution-server")]
 pub mod api_errors;
 #[cfg(feature = "execution-server")]
 pub mod api_handlers;
@@ -23,6 +25,11 @@ pub mod scheduler;
 pub mod sqlite_runtime_repository;
 
 #[cfg(feature = "execution-server")]
+pub use api_contract::{
+    canonical_runtime_api_contract_path, generate_runtime_api_contract,
+    runtime_api_contract_pretty_json, write_runtime_api_contract, RUNTIME_API_CONTRACT_DOC_PATH,
+};
+#[cfg(feature = "execution-server")]
 pub use api_errors::ApiError;
 #[cfg(feature = "execution-server")]
 pub use api_handlers::{build_router, ApiRole, ExecutionApiState};
@@ -35,11 +42,11 @@ pub use api_models::{
     DeadLetterItem, DeadLetterListResponse, DeadLetterReplayResponse, InterruptDetailResponse,
     InterruptListResponse, JobDetailResponse, JobHistoryItem, JobHistoryResponse, JobStateResponse,
     JobTimelineItem, JobTimelineResponse, ListAuditLogsQuery, ListDeadLettersQuery,
-    ListJobsResponse, RejectInterruptRequest, ReplayJobRequest, ResumeInterruptRequest,
-    ResumeJobRequest, RetryPolicyRequest, RunJobRequest, RunJobResponse, TimeoutPolicyRequest,
-    TimelineExportResponse, TraceContextResponse,
-    WorkerAckRequest, WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest,
-    WorkerLeaseResponse, WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
+    ListInterruptsQuery, ListJobsQuery, ListJobsResponse, RejectInterruptRequest, ReplayJobRequest,
+    ResumeInterruptRequest, ResumeJobRequest, RetryPolicyRequest, RunJobRequest, RunJobResponse,
+    TimelineExportResponse, TimeoutPolicyRequest, TraceContextResponse, WorkerAckRequest,
+    WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse,
+    WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
 };
 #[cfg(feature = "sqlite-persistence")]
 pub use backend_config::{RuntimeStorageBackend, RuntimeStorageConfig};

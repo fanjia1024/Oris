@@ -1,0 +1,2627 @@
+{
+  "api_version": "v1",
+  "contract_kind": "json-schema-catalog",
+  "artifact_path": "docs/runtime-api-contract.json",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "auth": "public",
+      "summary": "Prometheus metrics scrape",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "text/plain; version=0.0.4",
+      "response_schema": null,
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit/logs",
+      "auth": "api-auth",
+      "summary": "List audit log records",
+      "request_body_schema": null,
+      "query_schema": "ListAuditLogsQuery",
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_AuditLogListResponse",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/v1/attempts/:attempt_id/retries",
+      "auth": "api-auth",
+      "summary": "Inspect retry history for an attempt",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_AttemptRetryHistoryResponse",
+      "path_params": [
+        {
+          "name": "attempt_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/dlq",
+      "auth": "api-auth",
+      "summary": "List dead-letter queue entries",
+      "request_body_schema": null,
+      "query_schema": "ListDeadLettersQuery",
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_DeadLetterListResponse",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/v1/dlq/:attempt_id",
+      "auth": "api-auth",
+      "summary": "Inspect a dead-letter queue entry",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_DeadLetterItem",
+      "path_params": [
+        {
+          "name": "attempt_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/dlq/:attempt_id/replay",
+      "auth": "api-auth",
+      "summary": "Replay a dead-letter queue entry",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_DeadLetterReplayResponse",
+      "path_params": [
+        {
+          "name": "attempt_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/jobs",
+      "auth": "api-auth",
+      "summary": "List jobs",
+      "request_body_schema": null,
+      "query_schema": "ListJobsQuery",
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_ListJobsResponse",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs",
+      "auth": "api-auth",
+      "summary": "Create a job",
+      "request_body_schema": "RunJobRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_RunJobResponse",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs/run",
+      "auth": "api-auth",
+      "summary": "Create a job via explicit run endpoint",
+      "request_body_schema": "RunJobRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_RunJobResponse",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/v1/jobs/:thread_id",
+      "auth": "api-auth",
+      "summary": "Inspect job state",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_JobStateResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/jobs/:thread_id/detail",
+      "auth": "api-auth",
+      "summary": "Inspect job detail",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_JobDetailResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/jobs/:thread_id/timeline/export",
+      "auth": "api-auth",
+      "summary": "Export job timeline",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_TimelineExportResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/jobs/:thread_id/history",
+      "auth": "api-auth",
+      "summary": "List job checkpoints",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_JobHistoryResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/jobs/:thread_id/timeline",
+      "auth": "api-auth",
+      "summary": "List job timeline events",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_JobTimelineResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/jobs/:thread_id/checkpoints/:checkpoint_id",
+      "auth": "api-auth",
+      "summary": "Inspect a checkpoint snapshot",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_CheckpointInspectResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        },
+        {
+          "name": "checkpoint_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs/:thread_id/resume",
+      "auth": "api-auth",
+      "summary": "Resume a blocked job",
+      "request_body_schema": "ResumeJobRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_RunJobResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs/:thread_id/replay",
+      "auth": "api-auth",
+      "summary": "Replay a job from the current or selected checkpoint",
+      "request_body_schema": "ReplayJobRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_RunJobResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs/:thread_id/cancel",
+      "auth": "api-auth",
+      "summary": "Cancel a job",
+      "request_body_schema": "CancelJobRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_CancelJobResponse",
+      "path_params": [
+        {
+          "name": "thread_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/workers/poll",
+      "auth": "api-auth",
+      "summary": "Poll for one dispatchable attempt",
+      "request_body_schema": "WorkerPollRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_WorkerPollResponse",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/v1/workers/:worker_id/heartbeat",
+      "auth": "api-auth",
+      "summary": "Refresh a worker lease heartbeat",
+      "request_body_schema": "WorkerHeartbeatRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_WorkerLeaseResponse",
+      "path_params": [
+        {
+          "name": "worker_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/workers/:worker_id/extend-lease",
+      "auth": "api-auth",
+      "summary": "Extend a worker lease",
+      "request_body_schema": "WorkerExtendLeaseRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_WorkerLeaseResponse",
+      "path_params": [
+        {
+          "name": "worker_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/workers/:worker_id/report-step",
+      "auth": "api-auth",
+      "summary": "Report step execution progress",
+      "request_body_schema": "WorkerReportStepRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_WorkerAckResponse",
+      "path_params": [
+        {
+          "name": "worker_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/workers/:worker_id/ack",
+      "auth": "api-auth",
+      "summary": "Acknowledge terminal attempt state",
+      "request_body_schema": "WorkerAckRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_WorkerAckResponse",
+      "path_params": [
+        {
+          "name": "worker_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/interrupts",
+      "auth": "api-auth",
+      "summary": "List pending and historical interrupts",
+      "request_body_schema": null,
+      "query_schema": "ListInterruptsQuery",
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_InterruptListResponse",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/v1/interrupts/:interrupt_id",
+      "auth": "api-auth",
+      "summary": "Inspect a single interrupt",
+      "request_body_schema": null,
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_InterruptDetailResponse",
+      "path_params": [
+        {
+          "name": "interrupt_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/interrupts/:interrupt_id/resume",
+      "auth": "api-auth",
+      "summary": "Resume an interrupt",
+      "request_body_schema": "ResumeInterruptRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_RunJobResponse",
+      "path_params": [
+        {
+          "name": "interrupt_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/interrupts/:interrupt_id/reject",
+      "auth": "api-auth",
+      "summary": "Reject an interrupt and cancel the thread",
+      "request_body_schema": "RejectInterruptRequest",
+      "query_schema": null,
+      "response_content_type": "application/json",
+      "response_schema": "ApiEnvelope_CancelJobResponse",
+      "path_params": [
+        {
+          "name": "interrupt_id",
+          "schema_type": "string",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "schemas": {
+    "ApiEnvelope_AttemptRetryHistoryResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_AttemptRetryHistoryResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/AttemptRetryHistoryResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "AttemptRetryHistoryItem": {
+          "type": "object",
+          "required": [
+            "attempt_no",
+            "backoff_ms",
+            "max_retries",
+            "retry_no",
+            "scheduled_at",
+            "strategy"
+          ],
+          "properties": {
+            "attempt_no": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "backoff_ms": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "max_retries": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "retry_no": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "scheduled_at": {
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string"
+            }
+          }
+        },
+        "AttemptRetryHistoryResponse": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "current_attempt_no",
+            "current_status",
+            "history"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "current_attempt_no": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "current_status": {
+              "type": "string"
+            },
+            "history": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/AttemptRetryHistoryItem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_AuditLogListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_AuditLogListResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/AuditLogListResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "AuditLogItem": {
+          "type": "object",
+          "required": [
+            "action",
+            "actor_type",
+            "audit_id",
+            "created_at",
+            "request_id",
+            "resource_type",
+            "result"
+          ],
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "actor_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "actor_role": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "actor_type": {
+              "type": "string"
+            },
+            "audit_id": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "details": true,
+            "request_id": {
+              "type": "string"
+            },
+            "resource_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resource_type": {
+              "type": "string"
+            },
+            "result": {
+              "type": "string"
+            }
+          }
+        },
+        "AuditLogListResponse": {
+          "type": "object",
+          "required": [
+            "logs"
+          ],
+          "properties": {
+            "logs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/AuditLogItem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_CancelJobResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_CancelJobResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/CancelJobResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "CancelJobResponse": {
+          "type": "object",
+          "required": [
+            "status",
+            "thread_id"
+          ],
+          "properties": {
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_CheckpointInspectResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_CheckpointInspectResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/CheckpointInspectResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "CheckpointInspectResponse": {
+          "type": "object",
+          "required": [
+            "checkpoint_id",
+            "created_at",
+            "thread_id",
+            "values"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "values": true
+          }
+        }
+      }
+    },
+    "ApiEnvelope_DeadLetterItem": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_DeadLetterItem",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/DeadLetterItem"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "DeadLetterItem": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "attempt_no",
+            "dead_at",
+            "replay_count",
+            "replay_status",
+            "run_id",
+            "terminal_status"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "attempt_no": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "dead_at": {
+              "type": "string"
+            },
+            "last_replayed_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "replay_count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "replay_status": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "terminal_status": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_DeadLetterListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_DeadLetterListResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/DeadLetterListResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "DeadLetterItem": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "attempt_no",
+            "dead_at",
+            "replay_count",
+            "replay_status",
+            "run_id",
+            "terminal_status"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "attempt_no": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "dead_at": {
+              "type": "string"
+            },
+            "last_replayed_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "replay_count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "replay_status": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "terminal_status": {
+              "type": "string"
+            }
+          }
+        },
+        "DeadLetterListResponse": {
+          "type": "object",
+          "required": [
+            "entries"
+          ],
+          "properties": {
+            "entries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/DeadLetterItem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_DeadLetterReplayResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_DeadLetterReplayResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/DeadLetterReplayResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "DeadLetterReplayResponse": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "replay_count",
+            "status"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "replay_count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_InterruptDetailResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_InterruptDetailResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/InterruptDetailResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "InterruptDetailResponse": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "created_at",
+            "interrupt_id",
+            "run_id",
+            "status",
+            "thread_id",
+            "value"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "interrupt_id": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "value": true
+          }
+        }
+      }
+    },
+    "ApiEnvelope_InterruptListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_InterruptListResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/InterruptListResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "InterruptListItem": {
+          "type": "object",
+          "required": [
+            "created_at",
+            "interrupt_id",
+            "run_id",
+            "status",
+            "thread_id",
+            "value"
+          ],
+          "properties": {
+            "created_at": {
+              "type": "string"
+            },
+            "interrupt_id": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "value": true
+          }
+        },
+        "InterruptListResponse": {
+          "type": "object",
+          "required": [
+            "interrupts"
+          ],
+          "properties": {
+            "interrupts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/InterruptListItem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_JobDetailResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_JobDetailResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/JobDetailResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "InterruptDetailResponse": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "created_at",
+            "interrupt_id",
+            "run_id",
+            "status",
+            "thread_id",
+            "value"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "interrupt_id": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "value": true
+          }
+        },
+        "JobDetailResponse": {
+          "type": "object",
+          "required": [
+            "history",
+            "status",
+            "thread_id",
+            "timeline",
+            "values"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "history": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/JobHistoryItem"
+              }
+            },
+            "pending_interrupt": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/InterruptDetailResponse"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "timeline": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/JobTimelineItem"
+              }
+            },
+            "trace": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TraceContextResponse"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "values": true
+          }
+        },
+        "JobHistoryItem": {
+          "type": "object",
+          "required": [
+            "created_at"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            }
+          }
+        },
+        "JobTimelineItem": {
+          "type": "object",
+          "required": [
+            "created_at",
+            "event_type",
+            "seq"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "event_type": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        },
+        "TraceContextResponse": {
+          "type": "object",
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "properties": {
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "span_id": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "traceparent": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_JobHistoryResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_JobHistoryResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/JobHistoryResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "JobHistoryItem": {
+          "type": "object",
+          "required": [
+            "created_at"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            }
+          }
+        },
+        "JobHistoryResponse": {
+          "type": "object",
+          "required": [
+            "history",
+            "thread_id"
+          ],
+          "properties": {
+            "history": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/JobHistoryItem"
+              }
+            },
+            "thread_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_JobStateResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_JobStateResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/JobStateResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "JobStateResponse": {
+          "type": "object",
+          "required": [
+            "created_at",
+            "thread_id",
+            "values"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "values": true
+          }
+        }
+      }
+    },
+    "ApiEnvelope_JobTimelineResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_JobTimelineResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/JobTimelineResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "JobTimelineItem": {
+          "type": "object",
+          "required": [
+            "created_at",
+            "event_type",
+            "seq"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "event_type": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        },
+        "JobTimelineResponse": {
+          "type": "object",
+          "required": [
+            "thread_id",
+            "timeline"
+          ],
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "timeline": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/JobTimelineItem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_ListJobsResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_ListJobsResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/ListJobsResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "JobListItem": {
+          "type": "object",
+          "required": [
+            "status",
+            "thread_id",
+            "updated_at"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "updated_at": {
+              "type": "string"
+            }
+          }
+        },
+        "ListJobsResponse": {
+          "type": "object",
+          "required": [
+            "jobs"
+          ],
+          "properties": {
+            "jobs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/JobListItem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_RunJobResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_RunJobResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/RunJobResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "RunJobResponse": {
+          "type": "object",
+          "required": [
+            "idempotent_replay",
+            "interrupts",
+            "status",
+            "thread_id"
+          ],
+          "properties": {
+            "idempotency_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "idempotent_replay": {
+              "type": "boolean"
+            },
+            "interrupts": {
+              "type": "array",
+              "items": true
+            },
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "trace": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TraceContextResponse"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "TraceContextResponse": {
+          "type": "object",
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "properties": {
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "span_id": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "traceparent": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_TimelineExportResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_TimelineExportResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/TimelineExportResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "JobHistoryItem": {
+          "type": "object",
+          "required": [
+            "created_at"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            }
+          }
+        },
+        "JobTimelineItem": {
+          "type": "object",
+          "required": [
+            "created_at",
+            "event_type",
+            "seq"
+          ],
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "event_type": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        },
+        "TimelineExportResponse": {
+          "type": "object",
+          "required": [
+            "history",
+            "thread_id",
+            "timeline"
+          ],
+          "properties": {
+            "history": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/JobHistoryItem"
+              }
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "timeline": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/JobTimelineItem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_WorkerAckResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_WorkerAckResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/WorkerAckResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "TraceContextResponse": {
+          "type": "object",
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "properties": {
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "span_id": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "traceparent": {
+              "type": "string"
+            }
+          }
+        },
+        "WorkerAckResponse": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "status"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "next_attempt_no": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "next_retry_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "trace": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TraceContextResponse"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_WorkerLeaseResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_WorkerLeaseResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/WorkerLeaseResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "TraceContextResponse": {
+          "type": "object",
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "properties": {
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "span_id": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "traceparent": {
+              "type": "string"
+            }
+          }
+        },
+        "WorkerLeaseResponse": {
+          "type": "object",
+          "required": [
+            "lease_expires_at",
+            "lease_id",
+            "worker_id"
+          ],
+          "properties": {
+            "lease_expires_at": {
+              "type": "string"
+            },
+            "lease_id": {
+              "type": "string"
+            },
+            "trace": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TraceContextResponse"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "worker_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ApiEnvelope_WorkerPollResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiEnvelope_for_WorkerPollResponse",
+      "type": "object",
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/WorkerPollResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "ApiMeta": {
+          "type": "object",
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "TraceContextResponse": {
+          "type": "object",
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "properties": {
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "span_id": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "traceparent": {
+              "type": "string"
+            }
+          }
+        },
+        "WorkerPollResponse": {
+          "type": "object",
+          "required": [
+            "decision"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "decision": {
+              "type": "string"
+            },
+            "lease_expires_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lease_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tenant_active_leases": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "tenant_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tenant_limit": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "trace": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TraceContextResponse"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "worker_active_leases": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "worker_limit": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    "ApiMeta": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ApiMeta",
+      "type": "object",
+      "required": [
+        "api_version",
+        "status"
+      ],
+      "properties": {
+        "api_version": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "CancelJobRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "CancelJobRequest",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ListAuditLogsQuery": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ListAuditLogsQuery",
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      }
+    },
+    "ListDeadLettersQuery": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ListDeadLettersQuery",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ListInterruptsQuery": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ListInterruptsQuery",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ListJobsQuery": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ListJobsQuery",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RejectInterruptRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "RejectInterruptRequest",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ReplayJobRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ReplayJobRequest",
+      "type": "object",
+      "properties": {
+        "checkpoint_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ResumeInterruptRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ResumeInterruptRequest",
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": true
+      }
+    },
+    "ResumeJobRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ResumeJobRequest",
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "checkpoint_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": true
+      }
+    },
+    "RunJobRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "RunJobRequest",
+      "type": "object",
+      "required": [
+        "thread_id"
+      ],
+      "properties": {
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "tenant_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "thread_id": {
+          "type": "string"
+        },
+        "timeout_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TimeoutPolicyRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "definitions": {
+        "TimeoutPolicyRequest": {
+          "type": "object",
+          "required": [
+            "on_timeout_status",
+            "timeout_ms"
+          ],
+          "properties": {
+            "on_timeout_status": {
+              "type": "string"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      }
+    },
+    "WorkerAckRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "WorkerAckRequest",
+      "type": "object",
+      "required": [
+        "attempt_id",
+        "terminal_status"
+      ],
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "retry_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RetryPolicyRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminal_status": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "RetryPolicyRequest": {
+          "type": "object",
+          "required": [
+            "backoff_ms",
+            "max_retries",
+            "strategy"
+          ],
+          "properties": {
+            "backoff_ms": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "max_backoff_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "max_retries": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "multiplier": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            },
+            "strategy": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "WorkerExtendLeaseRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "WorkerExtendLeaseRequest",
+      "type": "object",
+      "required": [
+        "lease_id"
+      ],
+      "properties": {
+        "lease_id": {
+          "type": "string"
+        },
+        "lease_ttl_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      }
+    },
+    "WorkerHeartbeatRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "WorkerHeartbeatRequest",
+      "type": "object",
+      "required": [
+        "lease_id"
+      ],
+      "properties": {
+        "lease_id": {
+          "type": "string"
+        },
+        "lease_ttl_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      }
+    },
+    "WorkerPollRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "WorkerPollRequest",
+      "type": "object",
+      "required": [
+        "worker_id"
+      ],
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_active_leases": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "tenant_max_active_leases": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      }
+    },
+    "WorkerReportStepRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "WorkerReportStepRequest",
+      "type": "object",
+      "required": [
+        "action_id",
+        "attempt_id",
+        "dedupe_token",
+        "status"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string"
+        },
+        "attempt_id": {
+          "type": "string"
+        },
+        "dedupe_token": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
