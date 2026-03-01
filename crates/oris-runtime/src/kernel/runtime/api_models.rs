@@ -16,6 +16,14 @@ pub struct ApiMeta {
     pub api_version: &'static str,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceContextResponse {
+    pub trace_id: String,
+    pub span_id: String,
+    pub parent_span_id: Option<String>,
+    pub traceparent: String,
+}
+
 impl ApiMeta {
     pub fn ok() -> Self {
         Self {
@@ -31,6 +39,8 @@ pub struct RunJobRequest {
     pub input: Option<String>,
     pub idempotency_key: Option<String>,
     pub timeout_policy: Option<TimeoutPolicyRequest>,
+    pub priority: Option<i32>,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -56,6 +66,7 @@ pub struct RunJobResponse {
     pub interrupts: Vec<Value>,
     pub idempotency_key: Option<String>,
     pub idempotent_replay: bool,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -112,6 +123,7 @@ pub struct WorkerPollRequest {
     pub worker_id: String,
     pub limit: Option<usize>,
     pub max_active_leases: Option<usize>,
+    pub tenant_max_active_leases: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -120,6 +132,13 @@ pub struct WorkerPollResponse {
     pub attempt_id: Option<String>,
     pub lease_id: Option<String>,
     pub lease_expires_at: Option<String>,
+    pub reason: Option<String>,
+    pub worker_active_leases: Option<usize>,
+    pub worker_limit: Option<usize>,
+    pub tenant_id: Option<String>,
+    pub tenant_active_leases: Option<usize>,
+    pub tenant_limit: Option<usize>,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -169,6 +188,7 @@ pub struct WorkerLeaseResponse {
     pub worker_id: String,
     pub lease_id: String,
     pub lease_expires_at: String,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -177,6 +197,7 @@ pub struct WorkerAckResponse {
     pub status: String,
     pub next_retry_at: Option<String>,
     pub next_attempt_no: Option<u32>,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -271,6 +292,7 @@ pub struct JobDetailResponse {
     pub history: Vec<JobHistoryItem>,
     pub timeline: Vec<JobTimelineItem>,
     pub pending_interrupt: Option<InterruptDetailResponse>,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]

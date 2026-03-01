@@ -13,7 +13,7 @@ use crate::kernel::identity::{RunId, Seq};
 use super::models::{AttemptDispatchRecord, AttemptExecutionStatus, LeaseRecord};
 use super::repository::RuntimeRepository;
 
-const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 5;
+const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 9;
 
 #[derive(Clone)]
 pub struct SqliteRuntimeRepository {
@@ -114,6 +114,40 @@ pub struct DeadLetterRow {
     pub last_replayed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReplayEffectClaim {
+    Acquired,
+    InProgress,
+    Completed(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct ReplayEffectLogRow {
+    pub fingerprint: String,
+    pub thread_id: String,
+    pub replay_target: String,
+    pub effect_type: String,
+    pub status: String,
+    pub execution_count: u32,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DispatchableAttemptContext {
+    pub attempt_id: String,
+    pub tenant_id: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttemptTraceContextRow {
+    pub trace_id: String,
+    pub parent_span_id: Option<String>,
+    pub span_id: String,
+    pub trace_flags: String,
+}
+
 impl SqliteRuntimeRepository {
     pub fn new(db_path: &str) -> Result<Self, KernelError> {
         let conn = Connection::open(db_path)
@@ -157,6 +191,22 @@ impl SqliteRuntimeRepository {
         if current < 5 {
             apply_sqlite_runtime_migration_v5(&conn)?;
             record_sqlite_migration(&conn, 5, "runtime_dead_letter_queue")?;
+        }
+        if current < 6 {
+            apply_sqlite_runtime_migration_v6(&conn)?;
+            record_sqlite_migration(&conn, 6, "attempt_priority_dispatch_order")?;
+        }
+        if current < 7 {
+            apply_sqlite_runtime_migration_v7(&conn)?;
+            record_sqlite_migration(&conn, 7, "attempt_tenant_rate_limits")?;
+        }
+        if current < 8 {
+            apply_sqlite_runtime_migration_v8(&conn)?;
+            record_sqlite_migration(&conn, 8, "attempt_trace_context")?;
+        }
+        if current < 9 {
+            apply_sqlite_runtime_migration_v9(&conn)?;
+            record_sqlite_migration(&conn, 9, "replay_effect_guard")?;
         }
         Ok(())
     }
@@ -219,6 +269,54 @@ impl SqliteRuntimeRepository {
         Ok(())
     }
 
+    pub fn set_attempt_priority(&self, attempt_id: &str, priority: i32) -> Result<(), KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_attempts SET priority = ?2 WHERE attempt_id = ?1",
+                params![attempt_id, priority],
+            )
+            .map_err(|e| KernelError::Driver(format!("set attempt priority: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "attempt not found for priority update: {}",
+                attempt_id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn set_attempt_tenant_id(
+        &self,
+        attempt_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<(), KernelError> {
+        let normalized = tenant_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_attempts SET tenant_id = ?2 WHERE attempt_id = ?1",
+                params![attempt_id, normalized],
+            )
+            .map_err(|e| KernelError::Driver(format!("set attempt tenant_id: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "attempt not found for tenant update: {}",
+                attempt_id
+            )));
+        }
+        Ok(())
+    }
+
     pub fn get_attempt_status(
         &self,
         attempt_id: &str,
@@ -239,6 +337,119 @@ impl SqliteRuntimeRepository {
         )
         .optional()
         .map_err(|e| KernelError::Driver(format!("get attempt status: {}", e)))
+    }
+
+    pub fn set_attempt_trace_context(
+        &self,
+        attempt_id: &str,
+        trace_id: &str,
+        parent_span_id: Option<&str>,
+        span_id: &str,
+        trace_flags: &str,
+    ) -> Result<(), KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_attempts
+                 SET trace_id = ?2,
+                     trace_parent_span_id = ?3,
+                     trace_span_id = ?4,
+                     trace_flags = ?5
+                 WHERE attempt_id = ?1",
+                params![attempt_id, trace_id, parent_span_id, span_id, trace_flags],
+            )
+            .map_err(|e| KernelError::Driver(format!("set attempt trace context: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "attempt not found for trace update: {}",
+                attempt_id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn get_attempt_trace_context(
+        &self,
+        attempt_id: &str,
+    ) -> Result<Option<AttemptTraceContextRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        conn.query_row(
+            "SELECT trace_id, trace_parent_span_id, trace_span_id, COALESCE(trace_flags, '01')
+             FROM runtime_attempts
+             WHERE attempt_id = ?1
+               AND trace_id IS NOT NULL
+               AND trace_span_id IS NOT NULL",
+            params![attempt_id],
+            |row| {
+                Ok(AttemptTraceContextRow {
+                    trace_id: row.get(0)?,
+                    parent_span_id: row.get(1)?,
+                    span_id: row.get(2)?,
+                    trace_flags: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| KernelError::Driver(format!("get attempt trace context: {}", e)))
+    }
+
+    pub fn latest_attempt_trace_for_run(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<AttemptTraceContextRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        conn.query_row(
+            "SELECT trace_id, trace_parent_span_id, trace_span_id, COALESCE(trace_flags, '01')
+             FROM runtime_attempts
+             WHERE run_id = ?1
+               AND trace_id IS NOT NULL
+               AND trace_span_id IS NOT NULL
+             ORDER BY attempt_no DESC, attempt_id DESC
+             LIMIT 1",
+            params![run_id],
+            |row| {
+                Ok(AttemptTraceContextRow {
+                    trace_id: row.get(0)?,
+                    parent_span_id: row.get(1)?,
+                    span_id: row.get(2)?,
+                    trace_flags: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| KernelError::Driver(format!("latest attempt trace for run: {}", e)))
+    }
+
+    pub fn advance_attempt_trace(
+        &self,
+        attempt_id: &str,
+        next_span_id: &str,
+    ) -> Result<Option<AttemptTraceContextRow>, KernelError> {
+        let Some(current) = self.get_attempt_trace_context(attempt_id)? else {
+            return Ok(None);
+        };
+        self.set_attempt_trace_context(
+            attempt_id,
+            &current.trace_id,
+            Some(&current.span_id),
+            next_span_id,
+            &current.trace_flags,
+        )?;
+        Ok(Some(AttemptTraceContextRow {
+            trace_id: current.trace_id,
+            parent_span_id: Some(current.span_id),
+            span_id: next_span_id.to_string(),
+            trace_flags: current.trace_flags,
+        }))
     }
 
     pub fn set_attempt_started_at_for_test(
@@ -347,6 +558,91 @@ impl SqliteRuntimeRepository {
             )
             .map_err(|e| KernelError::Driver(format!("count active leases: {}", e)))?;
         Ok(count as usize)
+    }
+
+    pub fn active_leases_for_tenant(
+        &self,
+        tenant_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<usize, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM runtime_leases l
+                 JOIN runtime_attempts a ON a.attempt_id = l.attempt_id
+                 WHERE a.tenant_id = ?1
+                   AND l.lease_expires_at_ms >= ?2",
+                params![tenant_id, dt_to_ms(now)],
+                |r| r.get(0),
+            )
+            .map_err(|e| KernelError::Driver(format!("count tenant active leases: {}", e)))?;
+        Ok(count as usize)
+    }
+
+    pub fn queue_depth(&self, now: DateTime<Utc>) -> Result<usize, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM runtime_attempts a
+                 LEFT JOIN runtime_leases l ON l.attempt_id = a.attempt_id AND l.lease_expires_at_ms >= ?1
+                 WHERE l.attempt_id IS NULL
+                   AND (
+                     a.status = 'queued'
+                     OR (a.status = 'retry_backoff' AND (a.retry_at_ms IS NULL OR a.retry_at_ms <= ?1))
+                   )",
+                params![dt_to_ms(now)],
+                |r| r.get(0),
+            )
+            .map_err(|e| KernelError::Driver(format!("queue depth: {}", e)))?;
+        Ok(count as usize)
+    }
+
+    pub fn list_dispatchable_attempt_contexts(
+        &self,
+        now: DateTime<Utc>,
+        limit: usize,
+    ) -> Result<Vec<DispatchableAttemptContext>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT a.attempt_id, a.tenant_id, a.started_at_ms
+                 FROM runtime_attempts a
+                 LEFT JOIN runtime_leases l ON l.attempt_id = a.attempt_id AND l.lease_expires_at_ms >= ?1
+                 WHERE l.attempt_id IS NULL
+                   AND (
+                     a.status = 'queued'
+                     OR (a.status = 'retry_backoff' AND (a.retry_at_ms IS NULL OR a.retry_at_ms <= ?1))
+                   )
+                 ORDER BY a.priority DESC, a.attempt_no ASC, a.attempt_id ASC
+                 LIMIT ?2",
+            )
+            .map_err(|e| KernelError::Driver(format!("prepare dispatchable contexts: {}", e)))?;
+        let rows = stmt
+            .query_map(params![dt_to_ms(now), limit as i64], |row| {
+                let started_at_ms: Option<i64> = row.get(2)?;
+                Ok(DispatchableAttemptContext {
+                    attempt_id: row.get(0)?,
+                    tenant_id: row.get(1)?,
+                    started_at: started_at_ms.map(ms_to_dt),
+                })
+            })
+            .map_err(|e| KernelError::Driver(format!("query dispatchable contexts: {}", e)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_rusqlite_err)?);
+        }
+        Ok(out)
     }
 
     pub fn heartbeat_lease_with_version(
@@ -771,6 +1067,129 @@ impl SqliteRuntimeRepository {
         row.replay_count += 1;
         row.last_replayed_at = Some(now);
         Ok(row)
+    }
+
+    pub fn claim_replay_effect(
+        &self,
+        thread_id: &str,
+        replay_target: &str,
+        fingerprint: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ReplayEffectClaim, KernelError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| KernelError::Driver(format!("begin replay effect tx: {}", e)))?;
+
+        let existing = tx
+            .query_row(
+                "SELECT status, response_json
+                 FROM runtime_replay_effects
+                 WHERE fingerprint = ?1",
+                params![fingerprint],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .optional()
+            .map_err(|e| KernelError::Driver(format!("read replay effect: {}", e)))?;
+
+        let claim = match existing {
+            Some((status, response_json)) if status == "completed" => {
+                let stored = response_json.ok_or_else(|| {
+                    KernelError::Driver("missing stored replay response".to_string())
+                })?;
+                ReplayEffectClaim::Completed(stored)
+            }
+            Some((status, _)) if status == "in_progress" => ReplayEffectClaim::InProgress,
+            Some((_status, _)) => ReplayEffectClaim::InProgress,
+            None => {
+                tx.execute(
+                    "INSERT INTO runtime_replay_effects
+                     (fingerprint, thread_id, replay_target, effect_type, status, execution_count, created_at_ms, completed_at_ms, response_json)
+                     VALUES (?1, ?2, ?3, 'job_replay', 'in_progress', 1, ?4, NULL, NULL)",
+                    params![fingerprint, thread_id, replay_target, dt_to_ms(now)],
+                )
+                .map_err(|e| KernelError::Driver(format!("insert replay effect: {}", e)))?;
+                ReplayEffectClaim::Acquired
+            }
+        };
+
+        tx.commit()
+            .map_err(|e| KernelError::Driver(format!("commit replay effect tx: {}", e)))?;
+        Ok(claim)
+    }
+
+    pub fn complete_replay_effect(
+        &self,
+        fingerprint: &str,
+        response_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_replay_effects
+                 SET status = 'completed',
+                     completed_at_ms = ?2,
+                     response_json = ?3
+                 WHERE fingerprint = ?1
+                   AND status = 'in_progress'",
+                params![fingerprint, dt_to_ms(now), response_json],
+            )
+            .map_err(|e| KernelError::Driver(format!("complete replay effect: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "replay effect not claimable for completion: {}",
+                fingerprint
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn abandon_replay_effect(&self, fingerprint: &str) -> Result<(), KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        conn.execute(
+            "DELETE FROM runtime_replay_effects
+             WHERE fingerprint = ?1
+               AND status = 'in_progress'",
+            params![fingerprint],
+        )
+        .map_err(|e| KernelError::Driver(format!("abandon replay effect: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn list_replay_effects_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Vec<ReplayEffectLogRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT fingerprint, thread_id, replay_target, effect_type, status, execution_count, created_at_ms, completed_at_ms
+                 FROM runtime_replay_effects
+                 WHERE thread_id = ?1
+                 ORDER BY created_at_ms ASC",
+            )
+            .map_err(|e| KernelError::Driver(format!("prepare list replay effects: {}", e)))?;
+        let rows = stmt
+            .query_map(params![thread_id], map_row_to_replay_effect_log)
+            .map_err(|e| KernelError::Driver(format!("query replay effects: {}", e)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| KernelError::Driver(format!("row replay effects: {}", e)))?);
+        }
+        Ok(out)
     }
 
     pub fn upsert_job(&self, thread_id: &str, status: &str) -> Result<(), KernelError> {
@@ -1278,6 +1697,19 @@ fn map_row_to_dead_letter(row: &rusqlite::Row) -> rusqlite::Result<DeadLetterRow
     })
 }
 
+fn map_row_to_replay_effect_log(row: &rusqlite::Row) -> rusqlite::Result<ReplayEffectLogRow> {
+    Ok(ReplayEffectLogRow {
+        fingerprint: row.get(0)?,
+        thread_id: row.get(1)?,
+        replay_target: row.get(2)?,
+        effect_type: row.get(3)?,
+        status: row.get(4)?,
+        execution_count: row.get::<_, i64>(5)? as u32,
+        created_at: ms_to_dt(row.get::<_, i64>(6)?),
+        completed_at: row.get::<_, Option<i64>>(7)?.map(ms_to_dt),
+    })
+}
+
 #[derive(Clone, Debug)]
 pub struct InterruptRow {
     pub interrupt_id: String,
@@ -1355,7 +1787,7 @@ impl RuntimeRepository for SqliteRuntimeRepository {
                      a.status = 'queued'
                      OR (a.status = 'retry_backoff' AND (a.retry_at_ms IS NULL OR a.retry_at_ms <= ?1))
                    )
-                 ORDER BY a.attempt_no ASC, a.attempt_id ASC
+                 ORDER BY a.priority DESC, a.attempt_no ASC, a.attempt_id ASC
                  LIMIT ?2",
             )
             .map_err(|e| KernelError::Driver(format!("prepare list dispatchable attempts: {}", e)))?;
@@ -1776,9 +2208,19 @@ fn apply_sqlite_runtime_migration_v2(conn: &Connection) -> Result<(), KernelErro
 fn apply_sqlite_runtime_migration_v3(conn: &Connection) -> Result<(), KernelError> {
     add_column_if_missing(conn, "runtime_attempts", "retry_strategy", "TEXT NULL")?;
     add_column_if_missing(conn, "runtime_attempts", "retry_backoff_ms", "INTEGER NULL")?;
-    add_column_if_missing(conn, "runtime_attempts", "retry_max_backoff_ms", "INTEGER NULL")?;
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "retry_max_backoff_ms",
+        "INTEGER NULL",
+    )?;
     add_column_if_missing(conn, "runtime_attempts", "retry_multiplier", "REAL NULL")?;
-    add_column_if_missing(conn, "runtime_attempts", "retry_max_retries", "INTEGER NULL")?;
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "retry_max_retries",
+        "INTEGER NULL",
+    )?;
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS runtime_attempt_retry_history (
@@ -1799,8 +2241,18 @@ fn apply_sqlite_runtime_migration_v3(conn: &Connection) -> Result<(), KernelErro
 }
 
 fn apply_sqlite_runtime_migration_v4(conn: &Connection) -> Result<(), KernelError> {
-    add_column_if_missing(conn, "runtime_attempts", "execution_timeout_ms", "INTEGER NULL")?;
-    add_column_if_missing(conn, "runtime_attempts", "timeout_terminal_status", "TEXT NULL")?;
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "execution_timeout_ms",
+        "INTEGER NULL",
+    )?;
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "timeout_terminal_status",
+        "TEXT NULL",
+    )?;
     add_column_if_missing(conn, "runtime_attempts", "started_at_ms", "INTEGER NULL")?;
     Ok(())
 }
@@ -1824,6 +2276,79 @@ fn apply_sqlite_runtime_migration_v5(conn: &Connection) -> Result<(), KernelErro
         "#,
     )
     .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v5: {}", e)))?;
+    Ok(())
+}
+
+fn apply_sqlite_runtime_migration_v6(conn: &Connection) -> Result<(), KernelError> {
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "priority",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runtime_attempts_status_priority_retry
+         ON runtime_attempts(status, priority DESC, retry_at_ms)",
+        [],
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v6: {}", e)))?;
+    Ok(())
+}
+
+fn apply_sqlite_runtime_migration_v7(conn: &Connection) -> Result<(), KernelError> {
+    add_column_if_missing(conn, "runtime_attempts", "tenant_id", "TEXT NULL")?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runtime_attempts_tenant_status
+         ON runtime_attempts(tenant_id, status, priority DESC)",
+        [],
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v7: {}", e)))?;
+    Ok(())
+}
+
+fn apply_sqlite_runtime_migration_v8(conn: &Connection) -> Result<(), KernelError> {
+    add_column_if_missing(conn, "runtime_attempts", "trace_id", "TEXT NULL")?;
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "trace_parent_span_id",
+        "TEXT NULL",
+    )?;
+    add_column_if_missing(conn, "runtime_attempts", "trace_span_id", "TEXT NULL")?;
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "trace_flags",
+        "TEXT NOT NULL DEFAULT '01'",
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runtime_attempts_trace_id
+         ON runtime_attempts(trace_id, attempt_id)",
+        [],
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v8: {}", e)))?;
+    Ok(())
+}
+
+fn apply_sqlite_runtime_migration_v9(conn: &Connection) -> Result<(), KernelError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS runtime_replay_effects (
+          fingerprint TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          replay_target TEXT NOT NULL,
+          effect_type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          execution_count INTEGER NOT NULL,
+          created_at_ms INTEGER NOT NULL,
+          completed_at_ms INTEGER NULL,
+          response_json TEXT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_runtime_replay_effects_thread_created
+          ON runtime_replay_effects(thread_id, created_at_ms);
+        "#,
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v9: {}", e)))?;
     Ok(())
 }
 
@@ -1862,8 +2387,8 @@ mod tests {
 
     use super::{
         apply_sqlite_runtime_migration_v1, ensure_sqlite_migration_table, record_sqlite_migration,
-        RetryPolicyConfig, RetryStrategy, SqliteRuntimeRepository, TimeoutPolicyConfig,
-        SQLITE_RUNTIME_SCHEMA_VERSION,
+        ReplayEffectClaim, RetryPolicyConfig, RetryStrategy, SqliteRuntimeRepository,
+        TimeoutPolicyConfig, SQLITE_RUNTIME_SCHEMA_VERSION,
     };
     use crate::kernel::runtime::models::AttemptExecutionStatus;
     use crate::kernel::runtime::repository::RuntimeRepository;
@@ -1926,14 +2451,41 @@ mod tests {
         assert!(column_exists(&conn, "runtime_api_keys", "role"));
         assert!(column_exists(&conn, "runtime_attempts", "retry_strategy"));
         assert!(column_exists(&conn, "runtime_attempts", "retry_backoff_ms"));
-        assert!(column_exists(&conn, "runtime_attempts", "retry_max_backoff_ms"));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "retry_max_backoff_ms"
+        ));
         assert!(column_exists(&conn, "runtime_attempts", "retry_multiplier"));
-        assert!(column_exists(&conn, "runtime_attempts", "retry_max_retries"));
-        assert!(column_exists(&conn, "runtime_attempts", "execution_timeout_ms"));
-        assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "retry_max_retries"
+        ));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "execution_timeout_ms"
+        ));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "timeout_terminal_status"
+        ));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
+        assert!(column_exists(&conn, "runtime_attempts", "priority"));
+        assert!(column_exists(&conn, "runtime_attempts", "tenant_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_id"));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "trace_parent_span_id"
+        ));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_span_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_flags"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
+        assert!(table_exists(&conn, "runtime_replay_effects"));
 
         let _ = fs::remove_file(path);
     }
@@ -1975,14 +2527,41 @@ mod tests {
         assert!(column_exists(&conn, "runtime_api_keys", "role"));
         assert!(column_exists(&conn, "runtime_attempts", "retry_strategy"));
         assert!(column_exists(&conn, "runtime_attempts", "retry_backoff_ms"));
-        assert!(column_exists(&conn, "runtime_attempts", "retry_max_backoff_ms"));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "retry_max_backoff_ms"
+        ));
         assert!(column_exists(&conn, "runtime_attempts", "retry_multiplier"));
-        assert!(column_exists(&conn, "runtime_attempts", "retry_max_retries"));
-        assert!(column_exists(&conn, "runtime_attempts", "execution_timeout_ms"));
-        assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "retry_max_retries"
+        ));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "execution_timeout_ms"
+        ));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "timeout_terminal_status"
+        ));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
+        assert!(column_exists(&conn, "runtime_attempts", "priority"));
+        assert!(column_exists(&conn, "runtime_attempts", "tenant_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_id"));
+        assert!(column_exists(
+            &conn,
+            "runtime_attempts",
+            "trace_parent_span_id"
+        ));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_span_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_flags"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
+        assert!(table_exists(&conn, "runtime_replay_effects"));
 
         let migration_v2: Option<String> = conn
             .query_row(
@@ -2004,7 +2583,10 @@ mod tests {
             )
             .optional()
             .expect("query migration v3");
-        assert_eq!(migration_v3.as_deref(), Some("attempt_retry_policy_and_history"));
+        assert_eq!(
+            migration_v3.as_deref(),
+            Some("attempt_retry_policy_and_history")
+        );
         let migration_v4: Option<String> = conn
             .query_row(
                 "SELECT name FROM runtime_schema_migrations WHERE version = 4",
@@ -2013,7 +2595,10 @@ mod tests {
             )
             .optional()
             .expect("query migration v4");
-        assert_eq!(migration_v4.as_deref(), Some("attempt_execution_timeout_policy"));
+        assert_eq!(
+            migration_v4.as_deref(),
+            Some("attempt_execution_timeout_policy")
+        );
         let migration_v5: Option<String> = conn
             .query_row(
                 "SELECT name FROM runtime_schema_migrations WHERE version = 5",
@@ -2023,8 +2608,132 @@ mod tests {
             .optional()
             .expect("query migration v5");
         assert_eq!(migration_v5.as_deref(), Some("runtime_dead_letter_queue"));
+        let migration_v6: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 6",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v6");
+        assert_eq!(
+            migration_v6.as_deref(),
+            Some("attempt_priority_dispatch_order")
+        );
+        let migration_v7: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 7",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v7");
+        assert_eq!(migration_v7.as_deref(), Some("attempt_tenant_rate_limits"));
+        let migration_v8: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 8",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v8");
+        assert_eq!(migration_v8.as_deref(), Some("attempt_trace_context"));
+        let migration_v9: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 9",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v9");
+        assert_eq!(migration_v9.as_deref(), Some("replay_effect_guard"));
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn replay_effect_guard_persists_completed_effects_and_dedupes() {
+        let repo = SqliteRuntimeRepository::new(":memory:").expect("create sqlite runtime repo");
+        let claim = repo
+            .claim_replay_effect(
+                "thread-replay-guard",
+                "latest_state:abc123",
+                "fingerprint-1",
+                Utc::now(),
+            )
+            .expect("claim replay effect");
+        assert_eq!(claim, ReplayEffectClaim::Acquired);
+
+        repo.complete_replay_effect(
+            "fingerprint-1",
+            r#"{"thread_id":"thread-replay-guard","status":"completed"}"#,
+            Utc::now(),
+        )
+        .expect("complete replay effect");
+
+        let second_claim = repo
+            .claim_replay_effect(
+                "thread-replay-guard",
+                "latest_state:abc123",
+                "fingerprint-1",
+                Utc::now(),
+            )
+            .expect("claim completed replay effect");
+        match second_claim {
+            ReplayEffectClaim::Completed(response_json) => {
+                assert!(response_json.contains("\"thread_id\":\"thread-replay-guard\""));
+            }
+            other => panic!("expected completed replay effect, got {:?}", other),
+        }
+
+        let rows = repo
+            .list_replay_effects_for_thread("thread-replay-guard")
+            .expect("list replay effects");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].fingerprint, "fingerprint-1");
+        assert_eq!(rows[0].replay_target, "latest_state:abc123");
+        assert_eq!(rows[0].effect_type, "job_replay");
+        assert_eq!(rows[0].status, "completed");
+        assert_eq!(rows[0].execution_count, 1);
+        assert!(rows[0].completed_at.is_some());
+    }
+
+    #[test]
+    fn attempt_trace_context_round_trip_and_advances() {
+        let repo = SqliteRuntimeRepository::new(":memory:").expect("create sqlite repo");
+        repo.enqueue_attempt("attempt-trace-1", "run-trace-1")
+            .expect("enqueue trace attempt");
+        repo.set_attempt_trace_context(
+            "attempt-trace-1",
+            "0123456789abcdef0123456789abcdef",
+            Some("1111111111111111"),
+            "2222222222222222",
+            "01",
+        )
+        .expect("set trace context");
+
+        let current = repo
+            .get_attempt_trace_context("attempt-trace-1")
+            .expect("get trace context")
+            .expect("trace context");
+        assert_eq!(current.trace_id, "0123456789abcdef0123456789abcdef");
+        assert_eq!(current.parent_span_id.as_deref(), Some("1111111111111111"));
+        assert_eq!(current.span_id, "2222222222222222");
+        assert_eq!(current.trace_flags, "01");
+
+        let advanced = repo
+            .advance_attempt_trace("attempt-trace-1", "3333333333333333")
+            .expect("advance trace")
+            .expect("advanced trace");
+        assert_eq!(advanced.parent_span_id.as_deref(), Some("2222222222222222"));
+        assert_eq!(advanced.span_id, "3333333333333333");
+
+        let latest = repo
+            .latest_attempt_trace_for_run("run-trace-1")
+            .expect("latest trace for run")
+            .expect("run trace");
+        assert_eq!(latest.parent_span_id.as_deref(), Some("2222222222222222"));
+        assert_eq!(latest.span_id, "3333333333333333");
     }
 
     #[test]
@@ -2100,7 +2809,11 @@ mod tests {
         )
         .expect("set timeout policy");
         let lease = repo
-            .upsert_lease("attempt-timeout-1", "worker-timeout-1", Utc::now() + Duration::seconds(30))
+            .upsert_lease(
+                "attempt-timeout-1",
+                "worker-timeout-1",
+                Utc::now() + Duration::seconds(30),
+            )
             .expect("lease timeout attempt");
         assert!(!lease.lease_id.is_empty());
         repo.set_attempt_started_at_for_test(
@@ -2161,5 +2874,25 @@ mod tests {
             .expect("read replayed attempt status")
             .expect("attempt exists");
         assert_eq!(status, AttemptExecutionStatus::Queued);
+    }
+
+    #[test]
+    fn list_dispatchable_attempts_prefers_higher_priority_first() {
+        let repo = SqliteRuntimeRepository::new(":memory:").expect("create sqlite repo");
+        repo.enqueue_attempt("attempt-priority-low", "run-priority")
+            .expect("enqueue low priority");
+        repo.enqueue_attempt("attempt-priority-high", "run-priority")
+            .expect("enqueue high priority");
+        repo.set_attempt_priority("attempt-priority-low", 10)
+            .expect("set low priority");
+        repo.set_attempt_priority("attempt-priority-high", 90)
+            .expect("set high priority");
+
+        let rows = repo
+            .list_dispatchable_attempts(Utc::now(), 10)
+            .expect("list dispatchable attempts");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].attempt_id, "attempt-priority-high");
+        assert_eq!(rows[1].attempt_id, "attempt-priority-low");
     }
 }

@@ -37,7 +37,7 @@ pub use api_models::{
     JobTimelineItem, JobTimelineResponse, ListAuditLogsQuery, ListDeadLettersQuery,
     ListJobsResponse, RejectInterruptRequest, ReplayJobRequest, ResumeInterruptRequest,
     ResumeJobRequest, RetryPolicyRequest, RunJobRequest, RunJobResponse, TimeoutPolicyRequest,
-    TimelineExportResponse,
+    TimelineExportResponse, TraceContextResponse,
     WorkerAckRequest, WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest,
     WorkerLeaseResponse, WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
 };

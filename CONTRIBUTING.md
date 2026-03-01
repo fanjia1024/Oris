@@ -44,6 +44,14 @@ cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kern
 cargo test -p oris-runtime --features "sqlite-persistence,kernel-postgres" kernel::runtime::postgres_runtime_repository::tests:: -- --nocapture --test-threads=1
 cargo test -p oris-runtime --features "sqlite-persistence" kernel::runtime::sqlite_runtime_repository::tests::schema_migration -- --nocapture --test-threads=1
 cargo test -p oris-runtime --features "sqlite-persistence,kernel-postgres" kernel::runtime::backend_config::tests:: -- --nocapture --test-threads=1
+./scripts/run_scheduler_stress_suite.sh
+cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::run_to_worker_flow_propagates_trace_context_end_to_end -- --nocapture --test-threads=1
+cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::metrics_endpoint_is_scrape_ready_and_exposes_runtime_metrics -- --nocapture --test-threads=1
+cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::observability_assets_reference_metrics_present_in_sample_workload -- --nocapture --test-threads=1
+cargo test -p oris-runtime agent::checkpoint::tests:: -- --nocapture
+cargo test -p oris-runtime graph::plugin::tests:: -- --nocapture
+cargo check -p oris-runtime --example custom_node_plugins --offline
+bash scripts/verify_cargo_generate_templates.sh
 ```
 
 To execute the PostgreSQL branch of the runtime repository contract tests, set:
@@ -55,12 +63,24 @@ export ORIS_TEST_POSTGRES_URL=postgres://<user>:<password>@<host>:5432/<db>
 Migration workflow and rollback runbook:
 
 - [docs/runtime-schema-migrations.md](docs/runtime-schema-migrations.md)
+- [docs/production-operations-guide.md](docs/production-operations-guide.md)
+- [docs/incident-response-runbook.md](docs/incident-response-runbook.md)
 
 For security-focused changes, run the dedicated regression slice:
 
 ```bash
 cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::security_ -- --nocapture --test-threads=1
 ```
+
+For scheduler failover/conflict changes, the stress suite is the fast regression entrypoint:
+
+```bash
+./scripts/run_scheduler_stress_suite.sh
+```
+
+Baseline output reference:
+
+- [docs/scheduler-stress-baseline.md](docs/scheduler-stress-baseline.md)
 
 ## Pull request expectations
 

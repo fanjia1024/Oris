@@ -76,6 +76,7 @@ futures-util = "0.3.30"
 async-stream = "0.3.5"
 tokio-stream = "0.1.15"
 axum = { version = "0.7", optional = true }
+tracing = { version = "0.1", optional = true }
 schemars = { version = "0.8", features = ["derive"] }
 jsonschema = "0.17"
 secrecy = { version = "0.10.3", features = ["serde"] }
@@ -177,7 +178,7 @@ excel = ["calamine"]
 aws-s3 = ["aws-sdk-s3", "aws-config"]
 github = ["octocrab", "dep:base64"]
 browser-use = ["dep:headless_chrome"]
-execution-server = ["dep:axum", "dep:uuid"]
+execution-server = ["dep:axum", "dep:uuid", "dep:tracing"]
 # Retriever features
 wikipedia = []
 arxiv = []
@@ -201,6 +202,7 @@ testcontainers = "0.23"
 env_logger = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 mongodb = "2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [build-dependencies]
 cc = { version = "1", optional = true }

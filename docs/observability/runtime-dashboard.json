@@ -1,0 +1,95 @@
+{
+  "title": "Oris Runtime Overview",
+  "uid": "oris-runtime-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "refresh": "30s",
+  "tags": ["oris", "runtime", "observability"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "selected": true,
+          "text": "Prometheus",
+          "value": "Prometheus"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Queue Depth And Backpressure",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "oris_runtime_queue_depth",
+          "legendFormat": "queue depth"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (reason) (increase(oris_runtime_backpressure_total[5m]))",
+          "legendFormat": "backpressure {{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Dispatch Latency P95",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(oris_runtime_dispatch_latency_ms_bucket[5m])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Recovery Latency P95",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(oris_runtime_recovery_latency_ms_bucket[10m])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Error And Lease Conflict Rate",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "oris_runtime_terminal_error_rate",
+          "legendFormat": "terminal error rate"
+        },
+        {
+          "refId": "B",
+          "expr": "oris_runtime_lease_conflict_rate",
+          "legendFormat": "lease conflict rate"
+        }
+      ]
+    }
+  ]
+}

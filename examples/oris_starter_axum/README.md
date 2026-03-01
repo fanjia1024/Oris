@@ -7,7 +7,7 @@ This is a starter service project that shows how to use Oris as part of a Rust w
 - Running Oris runtime inside an Axum HTTP service.
 - SQLite-backed durable execution and idempotency.
 - Operator-facing endpoints for run/list/inspect/resume/replay/cancel.
-- Basic health endpoint and tracing setup.
+- Basic health endpoint, Prometheus `/metrics`, and tracing setup.
 
 ## Run
 
@@ -59,6 +59,12 @@ List runs:
 curl -s http://127.0.0.1:8080/v1/jobs
 ```
 
+Scrape metrics:
+
+```bash
+curl -s http://127.0.0.1:8080/metrics
+```
+
 ## Where to go next
 
 - Add your own graph nodes and tool calls.
@@ -69,4 +75,5 @@ curl -s http://127.0.0.1:8080/v1/jobs
 See also:
 
 - `docs/rust-ecosystem-integration.md`
+- `docs/observability/README.md`
 - `crates/oris-runtime/examples/`

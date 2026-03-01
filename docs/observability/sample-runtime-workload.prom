@@ -1,0 +1,52 @@
+# HELP oris_runtime_queue_depth Number of dispatchable attempts currently queued.
+# TYPE oris_runtime_queue_depth gauge
+oris_runtime_queue_depth 1
+# HELP oris_runtime_lease_operations_total Total lease-sensitive operations observed.
+# TYPE oris_runtime_lease_operations_total counter
+oris_runtime_lease_operations_total 3
+# HELP oris_runtime_lease_conflicts_total Total lease conflicts observed.
+# TYPE oris_runtime_lease_conflicts_total counter
+oris_runtime_lease_conflicts_total 1
+# HELP oris_runtime_lease_conflict_rate Lease conflicts divided by lease operations.
+# TYPE oris_runtime_lease_conflict_rate gauge
+oris_runtime_lease_conflict_rate 0.333333
+# HELP oris_runtime_backpressure_total Total worker poll backpressure decisions by reason.
+# TYPE oris_runtime_backpressure_total counter
+oris_runtime_backpressure_total{reason="worker_limit"} 1
+oris_runtime_backpressure_total{reason="tenant_limit"} 0
+# HELP oris_runtime_terminal_acks_total Total terminal worker acknowledgements by status.
+# TYPE oris_runtime_terminal_acks_total counter
+oris_runtime_terminal_acks_total{status="completed"} 0
+oris_runtime_terminal_acks_total{status="failed"} 1
+oris_runtime_terminal_acks_total{status="cancelled"} 0
+# HELP oris_runtime_terminal_error_rate Terminal failed/cancelled acknowledgements divided by all terminal acknowledgements.
+# TYPE oris_runtime_terminal_error_rate gauge
+oris_runtime_terminal_error_rate 1.000000
+# HELP oris_runtime_dispatch_latency_ms Dispatch latency in milliseconds.
+# TYPE oris_runtime_dispatch_latency_ms histogram
+oris_runtime_dispatch_latency_ms_bucket{le="1"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="5"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="10"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="25"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="50"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="100"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="250"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="500"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="1000"} 2
+oris_runtime_dispatch_latency_ms_bucket{le="+Inf"} 2
+oris_runtime_dispatch_latency_ms_sum 0.540000
+oris_runtime_dispatch_latency_ms_count 2
+# HELP oris_runtime_recovery_latency_ms Failover recovery latency in milliseconds.
+# TYPE oris_runtime_recovery_latency_ms histogram
+oris_runtime_recovery_latency_ms_bucket{le="1"} 1
+oris_runtime_recovery_latency_ms_bucket{le="5"} 1
+oris_runtime_recovery_latency_ms_bucket{le="10"} 1
+oris_runtime_recovery_latency_ms_bucket{le="25"} 1
+oris_runtime_recovery_latency_ms_bucket{le="50"} 1
+oris_runtime_recovery_latency_ms_bucket{le="100"} 1
+oris_runtime_recovery_latency_ms_bucket{le="250"} 1
+oris_runtime_recovery_latency_ms_bucket{le="500"} 1
+oris_runtime_recovery_latency_ms_bucket{le="1000"} 1
+oris_runtime_recovery_latency_ms_bucket{le="+Inf"} 1
+oris_runtime_recovery_latency_ms_sum 0.270000
+oris_runtime_recovery_latency_ms_count 1

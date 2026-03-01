@@ -235,11 +235,18 @@ The following modules are the **stable surface** for building on Oris. Prefer th
 
 | Entry | Purpose |
 |-------|---------|
-| `oris_runtime::graph` | State graphs, execution, persistence, interrupts, trace (`StateGraph`, `MessagesState`, checkpointer, `interrupt`/resume, `InvokeResult.trace`, `TraceEvent`) |
+| `oris_runtime::graph` | State graphs, execution, persistence, interrupts, trace (`StateGraph`, `MessagesState`, checkpointer, `NodePluginRegistry`, `interrupt`/resume, `InvokeResult.trace`, `TraceEvent`) |
 | `oris_runtime::agent` | Agent loop, tools, Deep Agent (planning, skills) |
 | `oris_runtime::tools` | Tool trait and built-in tools |
 
 State types (e.g. `graph::MessagesState`, `graph::State`) are part of the stable graph API. [Full API docs](https://docs.rs/oris-runtime).
+
+For human-in-the-loop checkpoint persistence in async runtimes, `oris_runtime::agent::AgentCheckpointer`
+now exposes async-compatible `put_async` / `get_async` helpers while keeping the existing synchronous
+`put` / `get` methods for backward compatibility.
+
+For runtime-extensible graphs, `oris_runtime::graph::NodePluginRegistry` and `typed_node_plugin`
+allow you to register custom node factories and add them to a `StateGraph` from validated JSON config.
 
 ## Install and config
 
@@ -266,8 +273,16 @@ Common environment variables:
 ## Examples and docs
 
 - [Hello World graph](crates/oris-runtime/examples/graph_hello_world.rs)
+- [Custom node plugins](crates/oris-runtime/examples/custom_node_plugins.rs) — register a typed runtime plugin and add a node from JSON config.
 - [Starter service project (Axum)](examples/oris_starter_axum/README.md) — standalone workspace example for integrating Oris into a Rust backend.
-- [Template matrix (service/worker/operator)](examples/templates/README.md) — scaffoldable skeletons for external users.
+- [Template matrix (service/worker/operator)](examples/templates/README.md) — `cargo-generate`-ready skeletons for external users.
+
+Scaffold one of the starter archetypes directly:
+
+```bash
+cargo install cargo-generate
+cargo generate --git https://github.com/Colin4k1024/Oris.git --subfolder examples/templates/axum_service --name my-oris-service
+```
 - [Durable agent job](crates/oris-runtime/examples/durable_agent_job.rs) — interrupt, restart, resume with same `thread_id`; state is checkpointed so it survives process restarts.
 - [Durable agent job with SQLite](crates/oris-runtime/examples/durable_agent_job_sqlite.rs) — same flow with SQLite persistence (run with `--features sqlite-persistence`).
 - [CLI durable job](crates/oris-runtime/examples/cli_durable_job.rs) — minimal operator CLI: `run`, `list`, `inspect`, `resume`, `replay`, `cancel` (requires `--features sqlite-persistence`).
@@ -278,9 +293,13 @@ Common environment variables:
 - [Deep agent (planning + filesystem)](crates/oris-runtime/examples/deep_agent_basic.rs)
 - [Oris v1 OS architecture (single-tenant)](docs/oris-v1-os-architecture.md)
 - [Rust ecosystem integration guide](docs/rust-ecosystem-integration.md)
+- [Production operations guide](docs/production-operations-guide.md)
+- [Incident response runbook](docs/incident-response-runbook.md)
 - [Runtime schema migration workflow](docs/runtime-schema-migrations.md)
+- [Scheduler stress baseline](docs/scheduler-stress-baseline.md)
 - [PostgreSQL backup and restore runbook](docs/postgres-backup-restore-runbook.md)
 - [Open source onboarding guide (ZH)](docs/open-source-onboarding-zh.md)
+- [Observability assets (Grafana + alerts)](docs/observability/)
 
 Start the execution server:
 
@@ -315,8 +334,9 @@ Dead-letter queue API:
 
 Execution server endpoints (v1 runtime-bin):
 
+- `GET /metrics` — Prometheus scrape endpoint for runtime metrics (`queue_depth`, `dispatch_latency_ms`, `lease_conflict_rate`, `recovery_latency_ms`)
 - `POST /v1/jobs/run`
-  Optional request field: `timeout_policy` with `{ "timeout_ms": <positive>, "on_timeout_status": "failed"|"cancelled" }`
+  Optional request fields: `timeout_policy` with `{ "timeout_ms": <positive>, "on_timeout_status": "failed"|"cancelled" }`, `priority` (`0..100`, higher dispatches first), and `tenant_id` (stable throttling key). Optional header: `traceparent` (`00-<trace_id>-<span_id>-<flags>`) to continue an upstream W3C/OpenTelemetry trace; responses return `data.trace`.
 - `GET /v1/jobs` — list jobs (query: `status`, `limit`, `offset`)
 - `GET /v1/jobs/:thread_id`
 - `GET /v1/jobs/:thread_id/detail` — run drill-down (status, attempts, checkpoint, pending interrupt)
@@ -325,7 +345,7 @@ Execution server endpoints (v1 runtime-bin):
 - `GET /v1/jobs/:thread_id/timeline`
 - `GET /v1/jobs/:thread_id/checkpoints/:checkpoint_id`
 - `POST /v1/jobs/:thread_id/resume`
-- `POST /v1/jobs/:thread_id/replay`
+- `POST /v1/jobs/:thread_id/replay` — with `sqlite-persistence`, replay requests are fingerprinted by thread + replay target (`checkpoint_id` when present, otherwise current state fingerprint) and duplicate replays return the stored response instead of re-executing side effects
 - `POST /v1/jobs/:thread_id/cancel`
 
 Interrupt API (Phase 4):
@@ -338,15 +358,18 @@ Interrupt API (Phase 4):
 Worker endpoints (Phase 3 baseline):
 
 - `POST /v1/workers/poll`
-- `POST /v1/workers/:worker_id/heartbeat`
+  Optional request field: `tenant_max_active_leases` to cap concurrent active leases per tenant during dispatch; traced attempts return `data.trace`.
+- `POST /v1/workers/:worker_id/heartbeat` — returns `data.trace` when the lease belongs to a traced attempt
 - `POST /v1/workers/:worker_id/extend-lease`
-- `POST /v1/workers/:worker_id/report-step`
-- `POST /v1/workers/:worker_id/ack` — accepts optional `retry_policy` (`fixed` or `exponential`) on failed ack to schedule bounded retries
+- `POST /v1/workers/:worker_id/report-step` — returns `data.trace` when the attempt has trace context
+- `POST /v1/workers/:worker_id/ack` — accepts optional `retry_policy` (`fixed` or `exponential`) on failed ack to schedule bounded retries, and returns `data.trace` when the attempt has trace context
 
 Lease/failover/backpressure baseline behavior:
 
 - `poll` first runs a lease-expiry tick (`expire_leases_and_requeue`) before dispatching.
 - The same tick also transitions attempts that exceeded `started_at + timeout_ms` into their configured terminal status (`failed` or `cancelled`) before any requeue/dispatch.
+- Under mixed queues, dispatch prefers higher `priority` before falling back to attempt order.
+- `poll` enforces both per-worker and per-tenant active lease limits, returning `decision=backpressure` with `reason` and active-limit counters when throttled.
 - `poll` enforces per-worker active-lease guardrail via `max_active_leases` (request) or server default.
 - `poll` returns `decision` as `dispatched`, `noop`, or `backpressure`.
 - `heartbeat` / `extend-lease` enforce lease ownership (`worker_id` must match lease owner), otherwise `409 conflict`.
@@ -358,7 +381,26 @@ Run idempotency contract (`POST /v1/jobs/run`):
 
 - Send optional `idempotency_key`.
 - Same `idempotency_key` + same payload returns the stored semantic result with `data.idempotent_replay=true`.
+- Same replay target (`thread_id` + explicit `checkpoint_id`, or `thread_id` + current state fingerprint) is also deduplicated under `sqlite-persistence`; repeated replay calls return the stored response with `data.idempotent_replay=true`.
 - Same `idempotency_key` + different payload returns `409 conflict`.
+- Trace metadata is observational only and does not participate in idempotency matching.
+
+Prometheus metrics contract:
+
+- `oris_runtime_queue_depth` — current dispatchable queue depth gauge
+- `oris_runtime_dispatch_latency_ms` — dispatch latency histogram
+- `oris_runtime_lease_operations_total` / `oris_runtime_lease_conflicts_total` — lease operation and conflict counters
+- `oris_runtime_lease_conflict_rate` — derived conflict-rate gauge
+- `oris_runtime_backpressure_total{reason="worker_limit|tenant_limit"}` — backpressure counter by cause
+- `oris_runtime_terminal_acks_total{status="completed|failed|cancelled"}` — terminal worker ack counters
+- `oris_runtime_terminal_error_rate` — derived terminal error-rate gauge
+- `oris_runtime_recovery_latency_ms` — failover recovery latency histogram
+
+Prebuilt observability assets:
+
+- Grafana dashboard: `docs/observability/runtime-dashboard.json`
+- Prometheus alert rules: `docs/observability/prometheus-alert-rules.yml`
+- Sample validation scrape: `docs/observability/sample-runtime-workload.prom`
 
 Execution API error contract:
 

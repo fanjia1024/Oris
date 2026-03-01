@@ -45,7 +45,7 @@ pub use runtime::{
     JobTimelineResponse, ListAuditLogsQuery, ListDeadLettersQuery, ListJobsResponse,
     RejectInterruptRequest, ReplayJobRequest, ResumeInterruptRequest, ResumeJobRequest,
     RetryPolicyRequest, RunJobRequest, RunJobResponse, TimeoutPolicyRequest,
-    TimelineExportResponse, WorkerAckRequest,
+    TimelineExportResponse, TraceContextResponse, WorkerAckRequest,
     WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse,
     WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
 };

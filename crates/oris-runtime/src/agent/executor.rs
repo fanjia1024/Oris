@@ -269,14 +269,15 @@ where
                                     self.checkpointer.as_ref(),
                                     config.and_then(|c| c.get_thread_id()),
                                 ) {
-                                    cp.put(
+                                    cp.put_async(
                                         &tid,
                                         &AgentCheckpointState {
                                             steps: steps.clone(),
                                             input_variables: plan_input.clone(),
                                             pending_actions: pending_for_checkpoint.clone(),
                                         },
-                                    );
+                                    )
+                                    .await;
                                 }
                                 return Err(ChainError::Interrupt(p.clone()));
                             }
@@ -299,14 +300,15 @@ where
                                         self.checkpointer.as_ref(),
                                         config.and_then(|c| c.get_thread_id()),
                                     ) {
-                                        cp.put(
+                                        cp.put_async(
                                             &tid,
                                             &AgentCheckpointState {
                                                 steps: steps.clone(),
                                                 input_variables: plan_input.clone(),
                                                 pending_actions: pending_for_checkpoint.clone(),
                                             },
-                                        );
+                                        )
+                                        .await;
                                     }
                                     return Err(ChainError::Interrupt(p));
                                 }
@@ -542,14 +544,15 @@ where
                                         self.checkpointer.as_ref(),
                                         config.and_then(|c| c.get_thread_id()),
                                     ) {
-                                        cp.put(
+                                        cp.put_async(
                                             &tid,
                                             &AgentCheckpointState {
                                                 steps: steps.clone(),
                                                 input_variables: plan_input.clone(),
                                                 pending_actions: actions_for_checkpoint.clone(),
                                             },
-                                        );
+                                        )
+                                        .await;
                                     }
                                     return Err(ChainError::Interrupt(p.clone()));
                                 }
@@ -571,14 +574,15 @@ where
                                         self.checkpointer.as_ref(),
                                         config.and_then(|c| c.get_thread_id()),
                                     ) {
-                                        cp.put(
+                                        cp.put_async(
                                             &tid,
                                             &AgentCheckpointState {
                                                 steps: steps.clone(),
                                                 input_variables: plan_input.clone(),
                                                 pending_actions: actions_for_checkpoint.clone(),
                                             },
-                                        );
+                                        )
+                                        .await;
                                     }
                                     return Err(ChainError::Interrupt(p));
                                 }
@@ -802,15 +806,15 @@ where
         let thread_id = config
             .get_thread_id()
             .ok_or_else(|| ChainError::OtherError("thread_id required for resume".to_string()))?;
-        let state = self
-            .checkpointer
-            .as_ref()
-            .and_then(|cp| cp.get(&thread_id))
-            .ok_or_else(|| {
-                ChainError::OtherError(
-                    "No checkpoint found for thread (use same thread_id as interrupt)".to_string(),
-                )
-            })?;
+        let state = match self.checkpointer.as_ref() {
+            Some(cp) => cp.get_async(&thread_id).await,
+            None => None,
+        }
+        .ok_or_else(|| {
+            ChainError::OtherError(
+                "No checkpoint found for thread (use same thread_id as interrupt)".to_string(),
+            )
+        })?;
         self.run_loop(
             state.input_variables.clone(),
             Some(config),
@@ -822,7 +826,17 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use async_trait::async_trait;
+
     use super::*;
+    use crate::agent::{Agent as AgentTrait, AgentCheckpointState, AgentCheckpointer};
+    use crate::graph::RunnableConfig;
+    use crate::schemas::agent::{AgentAction, AgentEvent, AgentFinish};
 
     #[test]
     fn test_convert_messages_to_prompt_args() {
@@ -857,5 +871,82 @@ mod tests {
         let args = result.unwrap();
         assert!(args.contains_key("custom_key"));
         assert_eq!(args["custom_key"], json!("custom_value"));
+    }
+
+    struct FinishAgent;
+
+    #[async_trait]
+    impl AgentTrait for FinishAgent {
+        async fn plan(
+            &self,
+            _intermediate_steps: &[(AgentAction, String)],
+            _inputs: PromptArgs,
+        ) -> Result<AgentEvent, crate::agent::AgentError> {
+            Ok(AgentEvent::Finish(AgentFinish {
+                output: "resumed".to_string(),
+            }))
+        }
+
+        fn get_tools(&self) -> Vec<Arc<dyn crate::tools::Tool>> {
+            Vec::new()
+        }
+    }
+
+    struct AsyncResumeProbe {
+        async_get_calls: AtomicUsize,
+        sync_get_calls: AtomicUsize,
+        stored: AgentCheckpointState,
+    }
+
+    impl AsyncResumeProbe {
+        fn new(stored: AgentCheckpointState) -> Self {
+            Self {
+                async_get_calls: AtomicUsize::new(0),
+                sync_get_calls: AtomicUsize::new(0),
+                stored,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl AgentCheckpointer for AsyncResumeProbe {
+        fn put(&self, _thread_id: &str, _state: &AgentCheckpointState) {}
+
+        fn get(&self, _thread_id: &str) -> Option<AgentCheckpointState> {
+            self.sync_get_calls.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+
+        async fn get_async(&self, _thread_id: &str) -> Option<AgentCheckpointState> {
+            self.async_get_calls.fetch_add(1, Ordering::SeqCst);
+            Some(self.stored.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn call_resume_uses_async_checkpoint_loader() {
+        let mut input = PromptArgs::new();
+        input.insert("input".to_string(), json!("resume request"));
+
+        let checkpoint = AgentCheckpointState {
+            steps: Vec::new(),
+            input_variables: input,
+            pending_actions: Vec::new(),
+        };
+        let checkpointer = Arc::new(AsyncResumeProbe::new(checkpoint));
+        let executor =
+            AgentExecutor::from_agent(FinishAgent).with_checkpointer(Some(checkpointer.clone()));
+
+        let result = executor
+            .call_resume(
+                &RunnableConfig::with_thread_id("resume-thread"),
+                json!({"decisions": []}),
+            )
+            .await
+            .expect("resume");
+
+        assert_eq!(result.generation, "resumed");
+        assert_eq!(checkpointer.async_get_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(checkpointer.sync_get_calls.load(Ordering::SeqCst), 0);
     }
 }
