@@ -13,7 +13,7 @@ use crate::kernel::identity::{RunId, Seq};
 use super::models::{AttemptDispatchRecord, AttemptExecutionStatus, LeaseRecord};
 use super::repository::RuntimeRepository;
 
-const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 4;
+const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 5;
 
 #[derive(Clone)]
 pub struct SqliteRuntimeRepository {
@@ -101,6 +101,19 @@ pub struct TimeoutPolicyConfig {
     pub on_timeout_status: AttemptExecutionStatus,
 }
 
+#[derive(Clone, Debug)]
+pub struct DeadLetterRow {
+    pub attempt_id: String,
+    pub run_id: String,
+    pub attempt_no: u32,
+    pub terminal_status: String,
+    pub reason: Option<String>,
+    pub dead_at: DateTime<Utc>,
+    pub replay_status: String,
+    pub replay_count: u32,
+    pub last_replayed_at: Option<DateTime<Utc>>,
+}
+
 impl SqliteRuntimeRepository {
     pub fn new(db_path: &str) -> Result<Self, KernelError> {
         let conn = Connection::open(db_path)
@@ -140,6 +153,10 @@ impl SqliteRuntimeRepository {
         if current < 4 {
             apply_sqlite_runtime_migration_v4(&conn)?;
             record_sqlite_migration(&conn, 4, "attempt_execution_timeout_policy")?;
+        }
+        if current < 5 {
+            apply_sqlite_runtime_migration_v5(&conn)?;
+            record_sqlite_migration(&conn, 5, "runtime_dead_letter_queue")?;
         }
         Ok(())
     }
@@ -412,19 +429,20 @@ impl SqliteRuntimeRepository {
 
         let attempt_row = tx
             .query_row(
-                "SELECT attempt_no, status, retry_strategy, retry_backoff_ms, retry_max_backoff_ms, retry_multiplier, retry_max_retries
+                "SELECT run_id, attempt_no, status, retry_strategy, retry_backoff_ms, retry_max_backoff_ms, retry_multiplier, retry_max_retries
                  FROM runtime_attempts
                  WHERE attempt_id = ?1",
                 params![attempt_id],
                 |row| {
                     Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
                         row.get::<_, Option<i64>>(4)?,
-                        row.get::<_, Option<f64>>(5)?,
-                        row.get::<_, Option<i64>>(6)?,
+                        row.get::<_, Option<i64>>(5)?,
+                        row.get::<_, Option<f64>>(6)?,
+                        row.get::<_, Option<i64>>(7)?,
                     ))
                 },
             )
@@ -432,6 +450,7 @@ impl SqliteRuntimeRepository {
             .map_err(|e| KernelError::Driver(format!("read attempt for ack: {}", e)))?;
 
         let Some((
+            run_id,
             current_attempt_no,
             _current_status,
             stored_strategy,
@@ -535,6 +554,28 @@ impl SqliteRuntimeRepository {
             params![attempt_id, attempt_status_to_str(&status)],
         )
         .map_err(|e| KernelError::Driver(format!("mark terminal attempt status: {}", e)))?;
+        if status == AttemptExecutionStatus::Failed {
+            tx.execute(
+                "INSERT INTO runtime_dead_letters
+                 (attempt_id, run_id, attempt_no, terminal_status, reason, dead_at_ms, replay_status, replay_count, last_replayed_at_ms)
+                 VALUES (?1, ?2, ?3, 'failed', ?4, ?5, 'pending', 0, NULL)
+                 ON CONFLICT(attempt_id) DO UPDATE SET
+                   run_id = excluded.run_id,
+                   attempt_no = excluded.attempt_no,
+                   terminal_status = excluded.terminal_status,
+                   reason = excluded.reason,
+                   dead_at_ms = excluded.dead_at_ms,
+                   replay_status = 'pending'",
+                params![
+                    attempt_id,
+                    run_id,
+                    current_attempt_no,
+                    "terminal_failed",
+                    dt_to_ms(now)
+                ],
+            )
+            .map_err(|e| KernelError::Driver(format!("upsert dead letter from ack: {}", e)))?;
+        }
         tx.commit()
             .map_err(|e| KernelError::Driver(format!("commit terminal ack: {}", e)))?;
         Ok(AttemptAckOutcome {
@@ -594,6 +635,142 @@ impl SqliteRuntimeRepository {
             current_status: parse_attempt_status(&status),
             history,
         }))
+    }
+
+    pub fn list_dead_letters(
+        &self,
+        status_filter: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DeadLetterRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let mut out = Vec::new();
+        if let Some(status) = status_filter {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT attempt_id, run_id, attempt_no, terminal_status, reason, dead_at_ms, replay_status, replay_count, last_replayed_at_ms
+                     FROM runtime_dead_letters
+                     WHERE replay_status = ?1
+                     ORDER BY dead_at_ms DESC
+                     LIMIT ?2",
+                )
+                .map_err(|e| KernelError::Driver(format!("prepare list dead letters: {}", e)))?;
+            let rows = stmt
+                .query_map(params![status, limit as i64], map_row_to_dead_letter)
+                .map_err(|e| KernelError::Driver(format!("query list dead letters: {}", e)))?;
+            for row in rows {
+                out.push(row.map_err(map_rusqlite_err)?);
+            }
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT attempt_id, run_id, attempt_no, terminal_status, reason, dead_at_ms, replay_status, replay_count, last_replayed_at_ms
+                     FROM runtime_dead_letters
+                     ORDER BY dead_at_ms DESC
+                     LIMIT ?1",
+                )
+                .map_err(|e| KernelError::Driver(format!("prepare list dead letters: {}", e)))?;
+            let rows = stmt
+                .query_map(params![limit as i64], map_row_to_dead_letter)
+                .map_err(|e| KernelError::Driver(format!("query list dead letters: {}", e)))?;
+            for row in rows {
+                out.push(row.map_err(map_rusqlite_err)?);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn get_dead_letter(&self, attempt_id: &str) -> Result<Option<DeadLetterRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        conn.query_row(
+            "SELECT attempt_id, run_id, attempt_no, terminal_status, reason, dead_at_ms, replay_status, replay_count, last_replayed_at_ms
+             FROM runtime_dead_letters
+             WHERE attempt_id = ?1",
+            params![attempt_id],
+            map_row_to_dead_letter,
+        )
+        .optional()
+        .map_err(|e| KernelError::Driver(format!("get dead letter: {}", e)))
+    }
+
+    pub fn replay_dead_letter(
+        &self,
+        attempt_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<DeadLetterRow, KernelError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| KernelError::Driver(format!("begin replay dead letter tx: {}", e)))?;
+        let Some(mut row) = tx
+            .query_row(
+                "SELECT attempt_id, run_id, attempt_no, terminal_status, reason, dead_at_ms, replay_status, replay_count, last_replayed_at_ms
+                 FROM runtime_dead_letters
+                 WHERE attempt_id = ?1",
+                params![attempt_id],
+                map_row_to_dead_letter,
+            )
+            .optional()
+            .map_err(|e| KernelError::Driver(format!("read dead letter for replay: {}", e)))?
+        else {
+            return Err(KernelError::Driver(format!(
+                "dead letter not found for attempt: {}",
+                attempt_id
+            )));
+        };
+
+        if row.replay_status != "pending" {
+            return Err(KernelError::Driver(format!(
+                "dead letter already replayed for attempt: {}",
+                attempt_id
+            )));
+        }
+
+        tx.execute(
+            "DELETE FROM runtime_leases WHERE attempt_id = ?1",
+            params![attempt_id],
+        )
+        .map_err(|e| KernelError::Driver(format!("delete lease before dlq replay: {}", e)))?;
+        let updated = tx
+            .execute(
+                "UPDATE runtime_attempts
+                 SET status = 'queued',
+                     retry_at_ms = NULL,
+                     started_at_ms = NULL
+                 WHERE attempt_id = ?1",
+                params![attempt_id],
+            )
+            .map_err(|e| KernelError::Driver(format!("requeue dead letter attempt: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "attempt not found for dead letter replay: {}",
+                attempt_id
+            )));
+        }
+        tx.execute(
+            "UPDATE runtime_dead_letters
+             SET replay_status = 'replayed',
+                 replay_count = replay_count + 1,
+                 last_replayed_at_ms = ?2
+             WHERE attempt_id = ?1",
+            params![attempt_id, dt_to_ms(now)],
+        )
+        .map_err(|e| KernelError::Driver(format!("mark dead letter replayed: {}", e)))?;
+        tx.commit()
+            .map_err(|e| KernelError::Driver(format!("commit dead letter replay: {}", e)))?;
+
+        row.replay_status = "replayed".to_string();
+        row.replay_count += 1;
+        row.last_replayed_at = Some(now);
+        Ok(row)
     }
 
     pub fn upsert_job(&self, thread_id: &str, status: &str) -> Result<(), KernelError> {
@@ -1087,6 +1264,20 @@ fn map_row_to_interrupt(row: &rusqlite::Row) -> rusqlite::Result<InterruptRow> {
     })
 }
 
+fn map_row_to_dead_letter(row: &rusqlite::Row) -> rusqlite::Result<DeadLetterRow> {
+    Ok(DeadLetterRow {
+        attempt_id: row.get(0)?,
+        run_id: row.get(1)?,
+        attempt_no: row.get::<_, i64>(2)? as u32,
+        terminal_status: row.get(3)?,
+        reason: row.get(4)?,
+        dead_at: ms_to_dt(row.get::<_, i64>(5)?),
+        replay_status: row.get(6)?,
+        replay_count: row.get::<_, i64>(7)? as u32,
+        last_replayed_at: row.get::<_, Option<i64>>(8)?.map(ms_to_dt),
+    })
+}
+
 #[derive(Clone, Debug)]
 pub struct InterruptRow {
     pub interrupt_id: String,
@@ -1329,7 +1520,7 @@ impl RuntimeRepository for SqliteRuntimeRepository {
             .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
         let mut stmt = conn
             .prepare(
-                "SELECT attempt_id, timeout_terminal_status
+                "SELECT attempt_id, run_id, attempt_no, timeout_terminal_status
                  FROM runtime_attempts
                  WHERE started_at_ms IS NOT NULL
                    AND execution_timeout_ms IS NOT NULL
@@ -1340,14 +1531,19 @@ impl RuntimeRepository for SqliteRuntimeRepository {
             .map_err(|e| KernelError::Driver(format!("prepare timed-out attempts query: {}", e)))?;
         let rows = stmt
             .query_map(params![dt_to_ms(now)], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
             })
             .map_err(|e| KernelError::Driver(format!("query timed-out attempts: {}", e)))?;
         let mut timed_out = Vec::new();
         for row in rows {
             timed_out.push(row.map_err(map_rusqlite_err)?);
         }
-        for (attempt_id, terminal_status) in &timed_out {
+        for (attempt_id, run_id, attempt_no, terminal_status) in &timed_out {
             conn.execute(
                 "DELETE FROM runtime_leases WHERE attempt_id = ?1",
                 params![attempt_id],
@@ -1362,6 +1558,22 @@ impl RuntimeRepository for SqliteRuntimeRepository {
                 params![attempt_id, terminal_status],
             )
             .map_err(|e| KernelError::Driver(format!("mark timed-out attempt status: {}", e)))?;
+            if terminal_status == "failed" {
+                conn.execute(
+                    "INSERT INTO runtime_dead_letters
+                     (attempt_id, run_id, attempt_no, terminal_status, reason, dead_at_ms, replay_status, replay_count, last_replayed_at_ms)
+                     VALUES (?1, ?2, ?3, 'failed', ?4, ?5, 'pending', 0, NULL)
+                     ON CONFLICT(attempt_id) DO UPDATE SET
+                       run_id = excluded.run_id,
+                       attempt_no = excluded.attempt_no,
+                       terminal_status = excluded.terminal_status,
+                       reason = excluded.reason,
+                       dead_at_ms = excluded.dead_at_ms,
+                       replay_status = 'pending'",
+                    params![attempt_id, run_id, attempt_no, "execution_timeout", dt_to_ms(now)],
+                )
+                .map_err(|e| KernelError::Driver(format!("upsert dead letter from timeout: {}", e)))?;
+            }
         }
         Ok(timed_out.len() as u64)
     }
@@ -1593,6 +1805,28 @@ fn apply_sqlite_runtime_migration_v4(conn: &Connection) -> Result<(), KernelErro
     Ok(())
 }
 
+fn apply_sqlite_runtime_migration_v5(conn: &Connection) -> Result<(), KernelError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS runtime_dead_letters (
+          attempt_id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          attempt_no INTEGER NOT NULL,
+          terminal_status TEXT NOT NULL,
+          reason TEXT NULL,
+          dead_at_ms INTEGER NOT NULL,
+          replay_status TEXT NOT NULL,
+          replay_count INTEGER NOT NULL,
+          last_replayed_at_ms INTEGER NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_runtime_dead_letters_status_dead_at
+          ON runtime_dead_letters(replay_status, dead_at_ms DESC);
+        "#,
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v5: {}", e)))?;
+    Ok(())
+}
+
 fn add_column_if_missing(
     conn: &Connection,
     table: &str,
@@ -1699,6 +1933,7 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
+        assert!(table_exists(&conn, "runtime_dead_letters"));
 
         let _ = fs::remove_file(path);
     }
@@ -1747,6 +1982,7 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
+        assert!(table_exists(&conn, "runtime_dead_letters"));
 
         let migration_v2: Option<String> = conn
             .query_row(
@@ -1778,6 +2014,15 @@ mod tests {
             .optional()
             .expect("query migration v4");
         assert_eq!(migration_v4.as_deref(), Some("attempt_execution_timeout_policy"));
+        let migration_v5: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 5",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v5");
+        assert_eq!(migration_v5.as_deref(), Some("runtime_dead_letter_queue"));
 
         let _ = fs::remove_file(path);
     }
@@ -1878,5 +2123,43 @@ mod tests {
             .expect("attempt exists");
         assert_eq!(attempt_no, 1);
         assert_eq!(status, AttemptExecutionStatus::Cancelled);
+    }
+
+    #[test]
+    fn final_failed_attempts_are_persisted_to_dead_letter_queue_and_replayable() {
+        let repo = SqliteRuntimeRepository::new(":memory:").expect("create sqlite repo");
+        repo.enqueue_attempt("attempt-dlq-1", "run-dlq-1")
+            .expect("enqueue dlq attempt");
+
+        let outcome = repo
+            .ack_attempt(
+                "attempt-dlq-1",
+                AttemptExecutionStatus::Failed,
+                None,
+                Utc::now(),
+            )
+            .expect("mark final failed");
+        assert_eq!(outcome.status, AttemptExecutionStatus::Failed);
+
+        let row = repo
+            .get_dead_letter("attempt-dlq-1")
+            .expect("read dead letter")
+            .expect("dead letter exists");
+        assert_eq!(row.run_id, "run-dlq-1");
+        assert_eq!(row.terminal_status, "failed");
+        assert_eq!(row.replay_status, "pending");
+        assert_eq!(row.replay_count, 0);
+
+        let replayed = repo
+            .replay_dead_letter("attempt-dlq-1", Utc::now())
+            .expect("replay dead letter");
+        assert_eq!(replayed.replay_status, "replayed");
+        assert_eq!(replayed.replay_count, 1);
+
+        let (_, status) = repo
+            .get_attempt_status("attempt-dlq-1")
+            .expect("read replayed attempt status")
+            .expect("attempt exists");
+        assert_eq!(status, AttemptExecutionStatus::Queued);
     }
 }

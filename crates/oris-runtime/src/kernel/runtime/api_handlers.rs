@@ -23,21 +23,22 @@ use super::api_idempotency::{IdempotencyRecord, SqliteIdempotencyStore};
 use super::api_models::{
     ApiEnvelope, ApiMeta, AttemptRetryHistoryItem, AttemptRetryHistoryResponse, AuditLogItem,
     AuditLogListResponse, CancelJobRequest, CancelJobResponse, CheckpointInspectResponse,
-    InterruptDetailResponse, InterruptListItem, InterruptListResponse, JobDetailResponse,
-    JobHistoryItem, JobHistoryResponse, JobListItem, JobStateResponse, JobTimelineItem,
-    JobTimelineResponse, ListAuditLogsQuery, ListJobsResponse, RejectInterruptRequest,
+    DeadLetterItem, DeadLetterListResponse, DeadLetterReplayResponse, InterruptDetailResponse,
+    InterruptListItem, InterruptListResponse, JobDetailResponse, JobHistoryItem,
+    JobHistoryResponse, JobListItem, JobStateResponse, JobTimelineItem, JobTimelineResponse,
+    ListAuditLogsQuery, ListDeadLettersQuery, ListJobsResponse, RejectInterruptRequest,
     ReplayJobRequest, ResumeInterruptRequest, ResumeJobRequest, RetryPolicyRequest, RunJobRequest,
-    RunJobResponse, TimeoutPolicyRequest, TimelineExportResponse, WorkerAckRequest, WorkerAckResponse,
-    WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse, WorkerPollRequest,
-    WorkerPollResponse, WorkerReportStepRequest,
+    RunJobResponse, TimeoutPolicyRequest, TimelineExportResponse, WorkerAckRequest,
+    WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse,
+    WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
 };
 use super::lease::{LeaseConfig, LeaseManager, RepositoryLeaseManager};
 use super::models::AttemptExecutionStatus;
 use super::scheduler::{SchedulerDecision, SkeletonScheduler};
 #[cfg(feature = "sqlite-persistence")]
 use super::sqlite_runtime_repository::{
-    AuditLogEntry, RetryPolicyConfig, RetryStrategy, SqliteRuntimeRepository, TimeoutPolicyConfig,
-    StepReportWriteResult,
+    AuditLogEntry, DeadLetterRow, RetryPolicyConfig, RetryStrategy, SqliteRuntimeRepository,
+    StepReportWriteResult, TimeoutPolicyConfig,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -306,6 +307,9 @@ pub fn build_router(state: ExecutionApiState) -> Router {
     Router::new()
         .route("/v1/audit/logs", get(list_audit_logs))
         .route("/v1/attempts/:attempt_id/retries", get(list_attempt_retries))
+        .route("/v1/dlq", get(list_dead_letters))
+        .route("/v1/dlq/:attempt_id", get(get_dead_letter))
+        .route("/v1/dlq/:attempt_id/replay", post(replay_dead_letter))
         .route("/v1/jobs", get(list_jobs).post(run_job))
         .route("/v1/jobs/run", post(run_job))
         .route("/v1/jobs/:thread_id", get(inspect_job))
@@ -393,6 +397,21 @@ fn json_hash(value: &Value) -> Result<String, ApiError> {
     let mut hasher = Sha256::new();
     hasher.update(&json);
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(feature = "sqlite-persistence")]
+fn map_dead_letter_item(row: DeadLetterRow) -> DeadLetterItem {
+    DeadLetterItem {
+        attempt_id: row.attempt_id,
+        run_id: row.run_id,
+        attempt_no: row.attempt_no,
+        terminal_status: row.terminal_status,
+        reason: row.reason,
+        dead_at: row.dead_at.to_rfc3339(),
+        replay_status: row.replay_status,
+        replay_count: row.replay_count,
+        last_replayed_at: row.last_replayed_at.map(|value| value.to_rfc3339()),
+    }
 }
 
 fn bearer_token_from_headers(headers: &HeaderMap) -> Option<&str> {
@@ -577,6 +596,11 @@ fn parse_audit_target(method: &axum::http::Method, path: &str) -> Option<AuditTa
             resource_type: "interrupt",
             resource_id: Some((*interrupt_id).to_string()),
         }),
+        ("dlq", ["v1", "dlq", attempt_id, "replay"]) => Some(AuditTarget {
+            action: "dlq.replay",
+            resource_type: "attempt",
+            resource_id: Some((*attempt_id).to_string()),
+        }),
         _ => None,
     }
 }
@@ -665,11 +689,13 @@ fn role_can_access(role: &ApiRole, method: &axum::http::Method, path: &str) -> b
     let is_workers = path.starts_with("/v1/workers");
     let is_audit = path.starts_with("/v1/audit");
     let is_attempts = path.starts_with("/v1/attempts");
+    let is_dlq = path.starts_with("/v1/dlq");
     match role {
         ApiRole::Operator => {
             is_jobs_or_interrupts
                 || (is_audit && *method == axum::http::Method::GET)
                 || (is_attempts && *method == axum::http::Method::GET)
+                || is_dlq
         }
         ApiRole::Worker => {
             // Worker role can only call worker control/data-plane endpoints.
@@ -1556,6 +1582,104 @@ pub async fn list_attempt_retries(
     {
         let _ = attempt_id;
         Err(ApiError::internal("attempt retry APIs require sqlite-persistence").with_request_id(rid))
+    }
+}
+
+pub async fn list_dead_letters(
+    State(state): State<ExecutionApiState>,
+    headers: HeaderMap,
+    Query(q): Query<ListDeadLettersQuery>,
+) -> Result<Json<ApiEnvelope<DeadLetterListResponse>>, ApiError> {
+    let rid = request_id(&headers);
+    #[cfg(feature = "sqlite-persistence")]
+    {
+        let repo = runtime_repo(&state, &rid)?.clone();
+        let limit = q.limit.unwrap_or(100).clamp(1, 500);
+        let status_filter = q.status.as_deref().map(str::trim).filter(|v| !v.is_empty());
+        let rows = repo
+            .list_dead_letters(status_filter, limit)
+            .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
+        let entries = rows.into_iter().map(map_dead_letter_item).collect();
+        return Ok(Json(ApiEnvelope {
+            meta: ApiMeta::ok(),
+            request_id: rid,
+            data: DeadLetterListResponse { entries },
+        }));
+    }
+    #[cfg(not(feature = "sqlite-persistence"))]
+    {
+        let _ = q;
+        Err(ApiError::internal("dlq APIs require sqlite-persistence").with_request_id(rid))
+    }
+}
+
+pub async fn get_dead_letter(
+    State(state): State<ExecutionApiState>,
+    Path(attempt_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<ApiEnvelope<DeadLetterItem>>, ApiError> {
+    let rid = request_id(&headers);
+    if attempt_id.trim().is_empty() {
+        return Err(ApiError::bad_request("attempt_id must not be empty").with_request_id(rid));
+    }
+    #[cfg(feature = "sqlite-persistence")]
+    {
+        let repo = runtime_repo(&state, &rid)?.clone();
+        let row = repo
+            .get_dead_letter(&attempt_id)
+            .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
+            .ok_or_else(|| ApiError::not_found("dead letter not found").with_request_id(rid.clone()))?;
+        return Ok(Json(ApiEnvelope {
+            meta: ApiMeta::ok(),
+            request_id: rid,
+            data: map_dead_letter_item(row),
+        }));
+    }
+    #[cfg(not(feature = "sqlite-persistence"))]
+    {
+        let _ = attempt_id;
+        Err(ApiError::internal("dlq APIs require sqlite-persistence").with_request_id(rid))
+    }
+}
+
+pub async fn replay_dead_letter(
+    State(state): State<ExecutionApiState>,
+    Path(attempt_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<ApiEnvelope<DeadLetterReplayResponse>>, ApiError> {
+    let rid = request_id(&headers);
+    if attempt_id.trim().is_empty() {
+        return Err(ApiError::bad_request("attempt_id must not be empty").with_request_id(rid));
+    }
+    #[cfg(feature = "sqlite-persistence")]
+    {
+        let repo = runtime_repo(&state, &rid)?.clone();
+        let row = repo
+            .replay_dead_letter(&attempt_id, Utc::now())
+            .map_err(|e| {
+                let msg = e.to_string();
+                if msg.contains("not found") {
+                    ApiError::not_found(msg).with_request_id(rid.clone())
+                } else if msg.contains("already replayed") {
+                    ApiError::conflict(msg).with_request_id(rid.clone())
+                } else {
+                    ApiError::internal(msg).with_request_id(rid.clone())
+                }
+            })?;
+        return Ok(Json(ApiEnvelope {
+            meta: ApiMeta::ok(),
+            request_id: rid,
+            data: DeadLetterReplayResponse {
+                attempt_id: row.attempt_id,
+                status: "requeued".to_string(),
+                replay_count: row.replay_count,
+            },
+        }));
+    }
+    #[cfg(not(feature = "sqlite-persistence"))]
+    {
+        let _ = attempt_id;
+        Err(ApiError::internal("dlq APIs require sqlite-persistence").with_request_id(rid))
     }
 }
 
@@ -3576,6 +3700,169 @@ mod tests {
             .expect("read timeout status")
             .expect("timeout attempt exists");
         assert_eq!(status, AttemptExecutionStatus::Failed);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn final_failed_attempts_are_visible_in_dlq_and_replayable_via_api() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:");
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        repo.enqueue_attempt("attempt-dlq-api-1", "run-dlq-api-1")
+            .expect("enqueue dlq api attempt");
+        let router = build_router(state);
+
+        let poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-dlq-api-1"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let poll_resp = router.clone().oneshot(poll_req).await.unwrap();
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+
+        let ack_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/worker-dlq-api-1/ack")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "attempt_id": "attempt-dlq-api-1",
+                    "terminal_status": "failed"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let ack_resp = router.clone().oneshot(ack_req).await.unwrap();
+        assert_eq!(ack_resp.status(), StatusCode::OK);
+        let ack_body = axum::body::to_bytes(ack_resp.into_body(), usize::MAX)
+            .await
+            .expect("ack body");
+        let ack_json: serde_json::Value = serde_json::from_slice(&ack_body).expect("ack json");
+        assert_eq!(ack_json["data"]["status"], "failed");
+
+        let list_req = Request::builder()
+            .method(Method::GET)
+            .uri("/v1/dlq?status=pending")
+            .body(Body::empty())
+            .unwrap();
+        let list_resp = router.clone().oneshot(list_req).await.unwrap();
+        assert_eq!(list_resp.status(), StatusCode::OK);
+        let list_body = axum::body::to_bytes(list_resp.into_body(), usize::MAX)
+            .await
+            .expect("dlq list body");
+        let list_json: serde_json::Value = serde_json::from_slice(&list_body).expect("dlq list json");
+        assert_eq!(list_json["data"]["entries"][0]["attempt_id"], "attempt-dlq-api-1");
+        assert_eq!(list_json["data"]["entries"][0]["replay_status"], "pending");
+
+        let detail_req = Request::builder()
+            .method(Method::GET)
+            .uri("/v1/dlq/attempt-dlq-api-1")
+            .body(Body::empty())
+            .unwrap();
+        let detail_resp = router.clone().oneshot(detail_req).await.unwrap();
+        assert_eq!(detail_resp.status(), StatusCode::OK);
+        let detail_body = axum::body::to_bytes(detail_resp.into_body(), usize::MAX)
+            .await
+            .expect("dlq detail body");
+        let detail_json: serde_json::Value =
+            serde_json::from_slice(&detail_body).expect("dlq detail json");
+        assert_eq!(detail_json["data"]["terminal_status"], "failed");
+
+        let replay_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/dlq/attempt-dlq-api-1/replay")
+            .body(Body::empty())
+            .unwrap();
+        let replay_resp = router.clone().oneshot(replay_req).await.unwrap();
+        assert_eq!(replay_resp.status(), StatusCode::OK);
+        let replay_body = axum::body::to_bytes(replay_resp.into_body(), usize::MAX)
+            .await
+            .expect("dlq replay body");
+        let replay_json: serde_json::Value =
+            serde_json::from_slice(&replay_body).expect("dlq replay json");
+        assert_eq!(replay_json["data"]["status"], "requeued");
+        assert_eq!(replay_json["data"]["replay_count"], 1);
+
+        let replay_again_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/dlq/attempt-dlq-api-1/replay")
+            .body(Body::empty())
+            .unwrap();
+        let replay_again_resp = router.clone().oneshot(replay_again_req).await.unwrap();
+        assert_eq!(replay_again_resp.status(), StatusCode::CONFLICT);
+
+        let second_poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-dlq-api-2"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let second_poll_resp = router.oneshot(second_poll_req).await.unwrap();
+        assert_eq!(second_poll_resp.status(), StatusCode::OK);
+        let second_poll_body = axum::body::to_bytes(second_poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("second poll body");
+        let second_poll_json: serde_json::Value =
+            serde_json::from_slice(&second_poll_body).expect("second poll json");
+        assert_eq!(second_poll_json["data"]["decision"], "dispatched");
+        assert_eq!(second_poll_json["data"]["attempt_id"], "attempt-dlq-api-1");
+
+        let dlq_row = repo
+            .get_dead_letter("attempt-dlq-api-1")
+            .expect("read dlq row")
+            .expect("dlq row exists");
+        assert_eq!(dlq_row.replay_status, "replayed");
+        assert_eq!(dlq_row.replay_count, 1);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn auth_worker_role_cannot_access_dlq_endpoints() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+                .with_static_api_key_record_with_role(
+                    "worker-key-dlq",
+                    "worker-secret-dlq",
+                    true,
+                    ApiRole::Worker,
+                );
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        repo.enqueue_attempt("attempt-dlq-rbac", "run-dlq-rbac")
+            .expect("enqueue dlq rbac attempt");
+        repo.ack_attempt("attempt-dlq-rbac", AttemptExecutionStatus::Failed, None, Utc::now())
+            .expect("move attempt to dlq");
+        let router = build_router(state);
+
+        let list_req = Request::builder()
+            .method(Method::GET)
+            .uri("/v1/dlq")
+            .header("x-api-key-id", "worker-key-dlq")
+            .header("x-api-key", "worker-secret-dlq")
+            .body(Body::empty())
+            .unwrap();
+        let list_resp = router.clone().oneshot(list_req).await.unwrap();
+        assert_eq!(list_resp.status(), StatusCode::FORBIDDEN);
+
+        let replay_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/dlq/attempt-dlq-rbac/replay")
+            .header("x-api-key-id", "worker-key-dlq")
+            .header("x-api-key", "worker-secret-dlq")
+            .body(Body::empty())
+            .unwrap();
+        let replay_resp = router.oneshot(replay_req).await.unwrap();
+        assert_eq!(replay_resp.status(), StatusCode::FORBIDDEN);
     }
 
     #[cfg(feature = "sqlite-persistence")]

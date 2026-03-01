@@ -215,6 +215,12 @@ pub struct ListAuditLogsQuery {
     pub limit: Option<usize>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct ListDeadLettersQuery {
+    pub status: Option<String>,
+    pub limit: Option<usize>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct AuditLogItem {
     pub audit_id: i64,
@@ -290,4 +296,29 @@ pub struct AttemptRetryHistoryResponse {
     pub current_attempt_no: u32,
     pub current_status: String,
     pub history: Vec<AttemptRetryHistoryItem>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct DeadLetterItem {
+    pub attempt_id: String,
+    pub run_id: String,
+    pub attempt_no: u32,
+    pub terminal_status: String,
+    pub reason: Option<String>,
+    pub dead_at: String,
+    pub replay_status: String,
+    pub replay_count: u32,
+    pub last_replayed_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct DeadLetterListResponse {
+    pub entries: Vec<DeadLetterItem>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct DeadLetterReplayResponse {
+    pub attempt_id: String,
+    pub status: String,
+    pub replay_count: u32,
 }

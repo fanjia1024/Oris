@@ -32,8 +32,9 @@ pub use api_idempotency::{IdempotencyRecord, SqliteIdempotencyStore};
 pub use api_models::{
     ApiEnvelope, ApiMeta, AttemptRetryHistoryItem, AttemptRetryHistoryResponse, AuditLogItem,
     AuditLogListResponse, CancelJobRequest, CancelJobResponse, CheckpointInspectResponse,
-    InterruptDetailResponse, InterruptListResponse, JobDetailResponse, JobHistoryItem,
-    JobHistoryResponse, JobStateResponse, JobTimelineItem, JobTimelineResponse, ListAuditLogsQuery,
+    DeadLetterItem, DeadLetterListResponse, DeadLetterReplayResponse, InterruptDetailResponse,
+    InterruptListResponse, JobDetailResponse, JobHistoryItem, JobHistoryResponse, JobStateResponse,
+    JobTimelineItem, JobTimelineResponse, ListAuditLogsQuery, ListDeadLettersQuery,
     ListJobsResponse, RejectInterruptRequest, ReplayJobRequest, ResumeInterruptRequest,
     ResumeJobRequest, RetryPolicyRequest, RunJobRequest, RunJobResponse, TimeoutPolicyRequest,
     TimelineExportResponse,
