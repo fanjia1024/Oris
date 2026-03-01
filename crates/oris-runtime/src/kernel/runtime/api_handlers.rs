@@ -34,7 +34,7 @@ use super::api_models::{
 };
 use super::lease::{LeaseConfig, LeaseManager, RepositoryLeaseManager};
 use super::models::AttemptExecutionStatus;
-use super::scheduler::{SchedulerDecision, SkeletonScheduler};
+use super::repository::RuntimeRepository;
 #[cfg(feature = "sqlite-persistence")]
 use super::sqlite_runtime_repository::{
     AuditLogEntry, DeadLetterRow, RetryPolicyConfig, RetryStrategy, SqliteRuntimeRepository,
@@ -173,6 +173,7 @@ pub struct ExecutionApiState {
     pub runtime_repo: Option<SqliteRuntimeRepository>,
     pub worker_poll_limit: usize,
     pub max_active_leases_per_worker: usize,
+    pub max_active_leases_per_tenant: usize,
 }
 
 impl ExecutionApiState {
@@ -187,6 +188,7 @@ impl ExecutionApiState {
             runtime_repo: None,
             worker_poll_limit: 1,
             max_active_leases_per_worker: 8,
+            max_active_leases_per_tenant: 8,
         }
     }
 
@@ -378,6 +380,7 @@ fn payload_hash(
     input: &str,
     timeout_policy: Option<&TimeoutPolicyRequest>,
     priority: i32,
+    tenant_id: Option<&str>,
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(thread_id.as_bytes());
@@ -391,6 +394,8 @@ fn payload_hash(
     }
     hasher.update(b"|");
     hasher.update(priority.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(tenant_id.unwrap_or("").as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
@@ -902,6 +907,26 @@ fn parse_priority(priority: Option<i32>, rid: &str) -> Result<i32, ApiError> {
     Ok(priority)
 }
 
+fn parse_tenant_id(tenant_id: Option<&str>, rid: &str) -> Result<Option<String>, ApiError> {
+    let Some(tenant_id) = tenant_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if tenant_id.len() > 128 {
+        return Err(ApiError::bad_request("tenant_id must be 128 characters or fewer")
+            .with_request_id(rid.to_string()));
+    }
+    if !tenant_id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(ApiError::bad_request(
+            "tenant_id contains unsupported characters",
+        )
+        .with_request_id(rid.to_string()));
+    }
+    Ok(Some(tenant_id.to_string()))
+}
+
 pub async fn run_job(
     State(state): State<ExecutionApiState>,
     headers: HeaderMap,
@@ -915,8 +940,14 @@ pub async fn run_job(
 
     let input = req.input.unwrap_or_else(|| "API run".to_string());
     let priority = parse_priority(req.priority, &rid)?;
-    let request_payload_hash =
-        payload_hash(&req.thread_id, &input, req.timeout_policy.as_ref(), priority);
+    let tenant_id = parse_tenant_id(req.tenant_id.as_deref(), &rid)?;
+    let request_payload_hash = payload_hash(
+        &req.thread_id,
+        &input,
+        req.timeout_policy.as_ref(),
+        priority,
+        tenant_id.as_deref(),
+    );
     log::info!(
         "execution_run request_id={} thread_id={} checkpoint_id=none",
         rid,
@@ -998,7 +1029,9 @@ pub async fn run_job(
 
     #[cfg(feature = "sqlite-persistence")]
     {
-        if (timeout_policy.is_some() || priority != 0) && state.runtime_repo.is_none() {
+        if (timeout_policy.is_some() || priority != 0 || tenant_id.is_some())
+            && state.runtime_repo.is_none()
+        {
             return Err(ApiError::internal("runtime scheduling options require runtime repository")
                 .with_request_id(rid.clone()));
         }
@@ -1010,6 +1043,7 @@ pub async fn run_job(
         let _ = repo.upsert_job(&req.thread_id, &status);
         let _ = repo.enqueue_attempt(&attempt_id, &req.thread_id);
         let _ = repo.set_attempt_priority(&attempt_id, priority);
+        let _ = repo.set_attempt_tenant_id(&attempt_id, tenant_id.as_deref());
         if let Some(policy) = timeout_policy.as_ref() {
             let _ = repo.set_attempt_timeout_policy(&attempt_id, policy);
         }
@@ -2033,14 +2067,19 @@ pub async fn worker_poll(
             .max_active_leases
             .unwrap_or(state.max_active_leases_per_worker)
             .max(1);
+        let max_active_per_tenant = req
+            .tenant_max_active_leases
+            .unwrap_or(state.max_active_leases_per_tenant)
+            .max(1);
+        let now = Utc::now();
 
         let lease_manager = RepositoryLeaseManager::new(repo.clone(), LeaseConfig::default());
         lease_manager
-            .tick(Utc::now())
+            .tick(now)
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
 
         let active = repo
-            .active_leases_for_worker(&req.worker_id, Utc::now())
+            .active_leases_for_worker(&req.worker_id, now)
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
         if active >= max_active {
             return Ok(Json(ApiEnvelope {
@@ -2051,35 +2090,84 @@ pub async fn worker_poll(
                     attempt_id: None,
                     lease_id: None,
                     lease_expires_at: None,
+                    reason: Some("worker_limit".to_string()),
+                    worker_active_leases: Some(active),
+                    worker_limit: Some(max_active),
+                    tenant_id: None,
+                    tenant_active_leases: None,
+                    tenant_limit: None,
                 },
             }));
         }
 
-        let scheduler = SkeletonScheduler::new(repo.clone());
-        for _ in 0..poll_limit {
-            let decision = scheduler
-                .dispatch_one(&req.worker_id)
-                .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
-            if let SchedulerDecision::Dispatched { attempt_id, .. } = decision {
-                let lease = repo
-                    .get_lease_for_attempt(&attempt_id)
-                    .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
-                    .ok_or_else(|| {
-                        ApiError::internal("lease missing after dispatch")
-                            .with_request_id(rid.clone())
-                    })?;
-                return Ok(Json(ApiEnvelope {
-                    meta: ApiMeta::ok(),
-                    request_id: rid,
-                    data: WorkerPollResponse {
-                        decision: "dispatched".to_string(),
-                        attempt_id: Some(attempt_id),
-                        lease_id: Some(lease.lease_id),
-                        lease_expires_at: Some(lease.lease_expires_at.to_rfc3339()),
-                    },
-                }));
+        let mut tenant_block: Option<(String, usize)> = None;
+        let scan_limit = poll_limit.max(16);
+        let candidates = repo
+            .list_dispatchable_attempt_contexts(now, scan_limit)
+            .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
+
+        for candidate in candidates {
+            if let Some(tenant_id) = candidate.tenant_id.as_deref() {
+                let tenant_active = repo
+                    .active_leases_for_tenant(tenant_id, now)
+                    .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
+                if tenant_active >= max_active_per_tenant {
+                    tenant_block = Some((tenant_id.to_string(), tenant_active));
+                    continue;
+                }
+            }
+
+            let lease_expires_at = now + chrono::Duration::seconds(30);
+            match repo.upsert_lease(&candidate.attempt_id, &req.worker_id, lease_expires_at) {
+                Ok(lease) => {
+                    return Ok(Json(ApiEnvelope {
+                        meta: ApiMeta::ok(),
+                        request_id: rid,
+                        data: WorkerPollResponse {
+                            decision: "dispatched".to_string(),
+                            attempt_id: Some(candidate.attempt_id),
+                            lease_id: Some(lease.lease_id),
+                            lease_expires_at: Some(lease.lease_expires_at.to_rfc3339()),
+                            reason: None,
+                            worker_active_leases: Some(active),
+                            worker_limit: Some(max_active),
+                            tenant_id: candidate.tenant_id,
+                            tenant_active_leases: None,
+                            tenant_limit: None,
+                        },
+                    }));
+                }
+                Err(err) => {
+                    let msg = err.to_string();
+                    if msg.contains("active lease already exists")
+                        || msg.contains("not dispatchable")
+                    {
+                        continue;
+                    }
+                    return Err(ApiError::internal(msg).with_request_id(rid.clone()));
+                }
             }
         }
+
+        if let Some((tenant_id, tenant_active)) = tenant_block {
+            return Ok(Json(ApiEnvelope {
+                meta: ApiMeta::ok(),
+                request_id: rid,
+                data: WorkerPollResponse {
+                    decision: "backpressure".to_string(),
+                    attempt_id: None,
+                    lease_id: None,
+                    lease_expires_at: None,
+                    reason: Some("tenant_limit".to_string()),
+                    worker_active_leases: Some(active),
+                    worker_limit: Some(max_active),
+                    tenant_id: Some(tenant_id),
+                    tenant_active_leases: Some(tenant_active),
+                    tenant_limit: Some(max_active_per_tenant),
+                },
+            }));
+        }
+
         return Ok(Json(ApiEnvelope {
             meta: ApiMeta::ok(),
             request_id: rid,
@@ -2088,6 +2176,12 @@ pub async fn worker_poll(
                 attempt_id: None,
                 lease_id: None,
                 lease_expires_at: None,
+                reason: None,
+                worker_active_leases: Some(active),
+                worker_limit: Some(max_active),
+                tenant_id: None,
+                tenant_active_leases: None,
+                tenant_limit: Some(max_active_per_tenant),
             },
         }));
     }
@@ -4020,6 +4114,9 @@ mod tests {
         let backpressure_json: serde_json::Value =
             serde_json::from_slice(&backpressure_body).expect("backpressure json");
         assert_eq!(backpressure_json["data"]["decision"], "backpressure");
+        assert_eq!(backpressure_json["data"]["reason"], "worker_limit");
+        assert_eq!(backpressure_json["data"]["worker_active_leases"], 1);
+        assert_eq!(backpressure_json["data"]["worker_limit"], 1);
 
         let wrong_hb_req = Request::builder()
             .method(Method::POST)
@@ -4063,6 +4160,70 @@ mod tests {
         let failover_json: serde_json::Value =
             serde_json::from_slice(&failover_body).expect("failover json");
         assert_eq!(failover_json["data"]["decision"], "dispatched");
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn worker_poll_returns_tenant_backpressure_when_tenant_is_rate_limited() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:");
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        repo.enqueue_attempt("attempt-tenant-1a", "run-tenant-1")
+            .expect("enqueue tenant attempt a");
+        repo.enqueue_attempt("attempt-tenant-1b", "run-tenant-1")
+            .expect("enqueue tenant attempt b");
+        repo.set_attempt_tenant_id("attempt-tenant-1a", Some("tenant-1"))
+            .expect("set tenant a");
+        repo.set_attempt_tenant_id("attempt-tenant-1b", Some("tenant-1"))
+            .expect("set tenant b");
+        let router = build_router(state);
+
+        let first_poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-tenant-1",
+                    "tenant_max_active_leases": 1
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let first_poll_resp = router.clone().oneshot(first_poll_req).await.unwrap();
+        assert_eq!(first_poll_resp.status(), StatusCode::OK);
+        let first_poll_body = axum::body::to_bytes(first_poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("first tenant poll body");
+        let first_poll_json: serde_json::Value =
+            serde_json::from_slice(&first_poll_body).expect("first tenant poll json");
+        assert_eq!(first_poll_json["data"]["decision"], "dispatched");
+        assert!(first_poll_json["data"]["attempt_id"].as_str().is_some());
+
+        let second_poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-tenant-2",
+                    "tenant_max_active_leases": 1
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let second_poll_resp = router.oneshot(second_poll_req).await.unwrap();
+        assert_eq!(second_poll_resp.status(), StatusCode::OK);
+        let second_poll_body = axum::body::to_bytes(second_poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("second tenant poll body");
+        let second_poll_json: serde_json::Value =
+            serde_json::from_slice(&second_poll_body).expect("second tenant poll json");
+        assert_eq!(second_poll_json["data"]["decision"], "backpressure");
+        assert_eq!(second_poll_json["data"]["reason"], "tenant_limit");
+        assert_eq!(second_poll_json["data"]["tenant_id"], "tenant-1");
+        assert_eq!(second_poll_json["data"]["tenant_active_leases"], 1);
+        assert_eq!(second_poll_json["data"]["tenant_limit"], 1);
     }
 
     #[cfg(feature = "sqlite-persistence")]

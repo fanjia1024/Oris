@@ -32,6 +32,7 @@ pub struct RunJobRequest {
     pub idempotency_key: Option<String>,
     pub timeout_policy: Option<TimeoutPolicyRequest>,
     pub priority: Option<i32>,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -113,6 +114,7 @@ pub struct WorkerPollRequest {
     pub worker_id: String,
     pub limit: Option<usize>,
     pub max_active_leases: Option<usize>,
+    pub tenant_max_active_leases: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -121,6 +123,12 @@ pub struct WorkerPollResponse {
     pub attempt_id: Option<String>,
     pub lease_id: Option<String>,
     pub lease_expires_at: Option<String>,
+    pub reason: Option<String>,
+    pub worker_active_leases: Option<usize>,
+    pub worker_limit: Option<usize>,
+    pub tenant_id: Option<String>,
+    pub tenant_active_leases: Option<usize>,
+    pub tenant_limit: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

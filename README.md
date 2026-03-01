@@ -316,7 +316,7 @@ Dead-letter queue API:
 Execution server endpoints (v1 runtime-bin):
 
 - `POST /v1/jobs/run`
-  Optional request fields: `timeout_policy` with `{ "timeout_ms": <positive>, "on_timeout_status": "failed"|"cancelled" }`, and `priority` (`0..100`, higher dispatches first)
+  Optional request fields: `timeout_policy` with `{ "timeout_ms": <positive>, "on_timeout_status": "failed"|"cancelled" }`, `priority` (`0..100`, higher dispatches first), and `tenant_id` (stable throttling key)
 - `GET /v1/jobs` — list jobs (query: `status`, `limit`, `offset`)
 - `GET /v1/jobs/:thread_id`
 - `GET /v1/jobs/:thread_id/detail` — run drill-down (status, attempts, checkpoint, pending interrupt)
@@ -338,6 +338,7 @@ Interrupt API (Phase 4):
 Worker endpoints (Phase 3 baseline):
 
 - `POST /v1/workers/poll`
+  Optional request field: `tenant_max_active_leases` to cap concurrent active leases per tenant during dispatch
 - `POST /v1/workers/:worker_id/heartbeat`
 - `POST /v1/workers/:worker_id/extend-lease`
 - `POST /v1/workers/:worker_id/report-step`
@@ -348,6 +349,7 @@ Lease/failover/backpressure baseline behavior:
 - `poll` first runs a lease-expiry tick (`expire_leases_and_requeue`) before dispatching.
 - The same tick also transitions attempts that exceeded `started_at + timeout_ms` into their configured terminal status (`failed` or `cancelled`) before any requeue/dispatch.
 - Under mixed queues, dispatch prefers higher `priority` before falling back to attempt order.
+- `poll` enforces both per-worker and per-tenant active lease limits, returning `decision=backpressure` with `reason` and active-limit counters when throttled.
 - `poll` enforces per-worker active-lease guardrail via `max_active_leases` (request) or server default.
 - `poll` returns `decision` as `dispatched`, `noop`, or `backpressure`.
 - `heartbeat` / `extend-lease` enforce lease ownership (`worker_id` must match lease owner), otherwise `409 conflict`.

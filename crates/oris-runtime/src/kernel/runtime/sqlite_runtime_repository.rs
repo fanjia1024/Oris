@@ -13,7 +13,7 @@ use crate::kernel::identity::{RunId, Seq};
 use super::models::{AttemptDispatchRecord, AttemptExecutionStatus, LeaseRecord};
 use super::repository::RuntimeRepository;
 
-const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 6;
+const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 7;
 
 #[derive(Clone)]
 pub struct SqliteRuntimeRepository {
@@ -114,6 +114,12 @@ pub struct DeadLetterRow {
     pub last_replayed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct DispatchableAttemptContext {
+    pub attempt_id: String,
+    pub tenant_id: Option<String>,
+}
+
 impl SqliteRuntimeRepository {
     pub fn new(db_path: &str) -> Result<Self, KernelError> {
         let conn = Connection::open(db_path)
@@ -161,6 +167,10 @@ impl SqliteRuntimeRepository {
         if current < 6 {
             apply_sqlite_runtime_migration_v6(&conn)?;
             record_sqlite_migration(&conn, 6, "attempt_priority_dispatch_order")?;
+        }
+        if current < 7 {
+            apply_sqlite_runtime_migration_v7(&conn)?;
+            record_sqlite_migration(&conn, 7, "attempt_tenant_rate_limits")?;
         }
         Ok(())
     }
@@ -237,6 +247,34 @@ impl SqliteRuntimeRepository {
         if updated == 0 {
             return Err(KernelError::Driver(format!(
                 "attempt not found for priority update: {}",
+                attempt_id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn set_attempt_tenant_id(
+        &self,
+        attempt_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<(), KernelError> {
+        let normalized = tenant_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_attempts SET tenant_id = ?2 WHERE attempt_id = ?1",
+                params![attempt_id, normalized],
+            )
+            .map_err(|e| KernelError::Driver(format!("set attempt tenant_id: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "attempt not found for tenant update: {}",
                 attempt_id
             )));
         }
@@ -371,6 +409,67 @@ impl SqliteRuntimeRepository {
             )
             .map_err(|e| KernelError::Driver(format!("count active leases: {}", e)))?;
         Ok(count as usize)
+    }
+
+    pub fn active_leases_for_tenant(
+        &self,
+        tenant_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<usize, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM runtime_leases l
+                 JOIN runtime_attempts a ON a.attempt_id = l.attempt_id
+                 WHERE a.tenant_id = ?1
+                   AND l.lease_expires_at_ms >= ?2",
+                params![tenant_id, dt_to_ms(now)],
+                |r| r.get(0),
+            )
+            .map_err(|e| KernelError::Driver(format!("count tenant active leases: {}", e)))?;
+        Ok(count as usize)
+    }
+
+    pub fn list_dispatchable_attempt_contexts(
+        &self,
+        now: DateTime<Utc>,
+        limit: usize,
+    ) -> Result<Vec<DispatchableAttemptContext>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT a.attempt_id, a.tenant_id
+                 FROM runtime_attempts a
+                 LEFT JOIN runtime_leases l ON l.attempt_id = a.attempt_id AND l.lease_expires_at_ms >= ?1
+                 WHERE l.attempt_id IS NULL
+                   AND (
+                     a.status = 'queued'
+                     OR (a.status = 'retry_backoff' AND (a.retry_at_ms IS NULL OR a.retry_at_ms <= ?1))
+                   )
+                 ORDER BY a.priority DESC, a.attempt_no ASC, a.attempt_id ASC
+                 LIMIT ?2",
+            )
+            .map_err(|e| KernelError::Driver(format!("prepare dispatchable contexts: {}", e)))?;
+        let rows = stmt
+            .query_map(params![dt_to_ms(now), limit as i64], |row| {
+                Ok(DispatchableAttemptContext {
+                    attempt_id: row.get(0)?,
+                    tenant_id: row.get(1)?,
+                })
+            })
+            .map_err(|e| KernelError::Driver(format!("query dispatchable contexts: {}", e)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_rusqlite_err)?);
+        }
+        Ok(out)
     }
 
     pub fn heartbeat_lease_with_version(
@@ -1867,6 +1966,17 @@ fn apply_sqlite_runtime_migration_v6(conn: &Connection) -> Result<(), KernelErro
     Ok(())
 }
 
+fn apply_sqlite_runtime_migration_v7(conn: &Connection) -> Result<(), KernelError> {
+    add_column_if_missing(conn, "runtime_attempts", "tenant_id", "TEXT NULL")?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runtime_attempts_tenant_status
+         ON runtime_attempts(tenant_id, status, priority DESC)",
+        [],
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v7: {}", e)))?;
+    Ok(())
+}
+
 fn add_column_if_missing(
     conn: &Connection,
     table: &str,
@@ -1973,6 +2083,7 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
         assert!(column_exists(&conn, "runtime_attempts", "priority"));
+        assert!(column_exists(&conn, "runtime_attempts", "tenant_id"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
 
@@ -2023,6 +2134,7 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
         assert!(column_exists(&conn, "runtime_attempts", "priority"));
+        assert!(column_exists(&conn, "runtime_attempts", "tenant_id"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
 
@@ -2074,6 +2186,15 @@ mod tests {
             .optional()
             .expect("query migration v6");
         assert_eq!(migration_v6.as_deref(), Some("attempt_priority_dispatch_order"));
+        let migration_v7: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 7",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v7");
+        assert_eq!(migration_v7.as_deref(), Some("attempt_tenant_rate_limits"));
 
         let _ = fs::remove_file(path);
     }
