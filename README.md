@@ -317,7 +317,7 @@ Dead-letter queue API:
 Execution server endpoints (v1 runtime-bin):
 
 - `POST /v1/jobs/run`
-  Optional request fields: `timeout_policy` with `{ "timeout_ms": <positive>, "on_timeout_status": "failed"|"cancelled" }`, `priority` (`0..100`, higher dispatches first), and `tenant_id` (stable throttling key)
+  Optional request fields: `timeout_policy` with `{ "timeout_ms": <positive>, "on_timeout_status": "failed"|"cancelled" }`, `priority` (`0..100`, higher dispatches first), and `tenant_id` (stable throttling key). Optional header: `traceparent` (`00-<trace_id>-<span_id>-<flags>`) to continue an upstream W3C/OpenTelemetry trace; responses return `data.trace`.
 - `GET /v1/jobs` — list jobs (query: `status`, `limit`, `offset`)
 - `GET /v1/jobs/:thread_id`
 - `GET /v1/jobs/:thread_id/detail` — run drill-down (status, attempts, checkpoint, pending interrupt)
@@ -339,11 +339,11 @@ Interrupt API (Phase 4):
 Worker endpoints (Phase 3 baseline):
 
 - `POST /v1/workers/poll`
-  Optional request field: `tenant_max_active_leases` to cap concurrent active leases per tenant during dispatch
-- `POST /v1/workers/:worker_id/heartbeat`
+  Optional request field: `tenant_max_active_leases` to cap concurrent active leases per tenant during dispatch; traced attempts return `data.trace`.
+- `POST /v1/workers/:worker_id/heartbeat` — returns `data.trace` when the lease belongs to a traced attempt
 - `POST /v1/workers/:worker_id/extend-lease`
-- `POST /v1/workers/:worker_id/report-step`
-- `POST /v1/workers/:worker_id/ack` — accepts optional `retry_policy` (`fixed` or `exponential`) on failed ack to schedule bounded retries
+- `POST /v1/workers/:worker_id/report-step` — returns `data.trace` when the attempt has trace context
+- `POST /v1/workers/:worker_id/ack` — accepts optional `retry_policy` (`fixed` or `exponential`) on failed ack to schedule bounded retries, and returns `data.trace` when the attempt has trace context
 
 Lease/failover/backpressure baseline behavior:
 
@@ -363,6 +363,7 @@ Run idempotency contract (`POST /v1/jobs/run`):
 - Send optional `idempotency_key`.
 - Same `idempotency_key` + same payload returns the stored semantic result with `data.idempotent_replay=true`.
 - Same `idempotency_key` + different payload returns `409 conflict`.
+- Trace metadata is observational only and does not participate in idempotency matching.
 
 Execution API error contract:
 

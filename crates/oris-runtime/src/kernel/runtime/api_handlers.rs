@@ -28,7 +28,8 @@ use super::api_models::{
     JobHistoryResponse, JobListItem, JobStateResponse, JobTimelineItem, JobTimelineResponse,
     ListAuditLogsQuery, ListDeadLettersQuery, ListJobsResponse, RejectInterruptRequest,
     ReplayJobRequest, ResumeInterruptRequest, ResumeJobRequest, RetryPolicyRequest, RunJobRequest,
-    RunJobResponse, TimeoutPolicyRequest, TimelineExportResponse, WorkerAckRequest,
+    RunJobResponse, TimeoutPolicyRequest, TimelineExportResponse, TraceContextResponse,
+    WorkerAckRequest,
     WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse,
     WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest,
 };
@@ -37,9 +38,10 @@ use super::models::AttemptExecutionStatus;
 use super::repository::RuntimeRepository;
 #[cfg(feature = "sqlite-persistence")]
 use super::sqlite_runtime_repository::{
-    AuditLogEntry, DeadLetterRow, RetryPolicyConfig, RetryStrategy, SqliteRuntimeRepository,
-    StepReportWriteResult, TimeoutPolicyConfig,
+    AttemptTraceContextRow, AuditLogEntry, DeadLetterRow, RetryPolicyConfig, RetryStrategy,
+    SqliteRuntimeRepository, StepReportWriteResult, TimeoutPolicyConfig,
 };
+use tracing::{info_span, Instrument};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiRole {
@@ -373,6 +375,129 @@ fn normalize_request_id(raw: &str) -> Option<String> {
         return None;
     }
     Some(trimmed.to_string())
+}
+
+const TRACE_HEADER_NAME: &str = "traceparent";
+const TRACE_VERSION: &str = "00";
+const DEFAULT_TRACE_FLAGS: &str = "01";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TraceContextState {
+    trace_id: String,
+    parent_span_id: Option<String>,
+    span_id: String,
+    trace_flags: String,
+}
+
+impl TraceContextState {
+    fn new_from_headers(headers: &HeaderMap, rid: &str) -> Result<Self, ApiError> {
+        let (trace_id, parent_span_id, trace_flags) = match parse_traceparent_header(headers, rid)? {
+            Some((trace_id, parent_span_id, trace_flags)) => {
+                (trace_id, Some(parent_span_id), trace_flags)
+            }
+            None => (generate_trace_id(), None, DEFAULT_TRACE_FLAGS.to_string()),
+        };
+        Ok(Self {
+            trace_id,
+            parent_span_id,
+            span_id: generate_span_id(),
+            trace_flags,
+        })
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    fn from_row(row: AttemptTraceContextRow) -> Self {
+        Self {
+            trace_id: row.trace_id,
+            parent_span_id: row.parent_span_id,
+            span_id: row.span_id,
+            trace_flags: row.trace_flags,
+        }
+    }
+
+    fn to_response(&self) -> TraceContextResponse {
+        TraceContextResponse {
+            trace_id: self.trace_id.clone(),
+            span_id: self.span_id.clone(),
+            parent_span_id: self.parent_span_id.clone(),
+            traceparent: format_traceparent(&self.trace_id, &self.span_id, &self.trace_flags),
+        }
+    }
+}
+
+fn generate_trace_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+fn generate_span_id() -> String {
+    let raw = uuid::Uuid::new_v4().simple().to_string();
+    raw[..16].to_string()
+}
+
+fn format_traceparent(trace_id: &str, span_id: &str, trace_flags: &str) -> String {
+    format!("{TRACE_VERSION}-{trace_id}-{span_id}-{trace_flags}")
+}
+
+fn parse_traceparent_header(
+    headers: &HeaderMap,
+    rid: &str,
+) -> Result<Option<(String, String, String)>, ApiError> {
+    let Some(raw) = headers.get(TRACE_HEADER_NAME) else {
+        return Ok(None);
+    };
+    let raw = raw.to_str().map_err(|_| {
+        ApiError::bad_request("traceparent header must be valid ASCII")
+            .with_request_id(rid.to_string())
+    })?;
+    let parts: Vec<_> = raw.trim().split('-').collect();
+    if parts.len() != 4
+        || parts[0] != TRACE_VERSION
+        || !is_hex_id(parts[1], 32)
+        || !is_hex_id(parts[2], 16)
+        || !is_hex_id(parts[3], 2)
+        || parts[1].chars().all(|c| c == '0')
+        || parts[2].chars().all(|c| c == '0')
+    {
+        return Err(ApiError::bad_request(
+            "traceparent must use format 00-<32 hex trace_id>-<16 hex span_id>-<2 hex flags>",
+        )
+        .with_request_id(rid.to_string()));
+    }
+    Ok(Some((
+        parts[1].to_ascii_lowercase(),
+        parts[2].to_ascii_lowercase(),
+        parts[3].to_ascii_lowercase(),
+    )))
+}
+
+fn is_hex_id(value: &str, expected_len: usize) -> bool {
+    value.len() == expected_len && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn lifecycle_span(
+    operation: &str,
+    rid: &str,
+    thread_id: Option<&str>,
+    attempt_id: Option<&str>,
+    worker_id: Option<&str>,
+    trace: Option<&TraceContextState>,
+) -> tracing::Span {
+    let trace_id = trace.map(|ctx| ctx.trace_id.as_str()).unwrap_or("");
+    let span_id = trace.map(|ctx| ctx.span_id.as_str()).unwrap_or("");
+    let parent_span_id = trace
+        .and_then(|ctx| ctx.parent_span_id.as_deref())
+        .unwrap_or("");
+    info_span!(
+        "execution_lifecycle",
+        operation = %operation,
+        request_id = %rid,
+        trace_id = %trace_id,
+        span_id = %span_id,
+        parent_span_id = %parent_span_id,
+        thread_id = %thread_id.unwrap_or(""),
+        attempt_id = %attempt_id.unwrap_or(""),
+        worker_id = %worker_id.unwrap_or(""),
+    )
 }
 
 fn payload_hash(
@@ -994,11 +1119,15 @@ pub async fn run_job(
         }
     }
 
+    let run_trace = TraceContextState::new_from_headers(&headers, &rid)?;
+    let run_span = lifecycle_span("job.run", &rid, Some(&req.thread_id), None, None, Some(&run_trace));
+
     let initial = MessagesState::with_messages(vec![Message::new_human_message(input)]);
     let config = RunnableConfig::with_thread_id(&req.thread_id);
     let result = state
         .compiled
         .invoke_with_config_interrupt(StateOrCommand::State(initial), &config)
+        .instrument(run_span)
         .await
         .map_err(|e| {
             ApiError::internal(format!("run failed: {}", e)).with_request_id(rid.clone())
@@ -1022,6 +1151,7 @@ pub async fn run_job(
         interrupts: interrupts.clone(),
         idempotency_key: req.idempotency_key.clone(),
         idempotent_replay: false,
+        trace: Some(run_trace.to_response()),
     };
 
     #[cfg(feature = "sqlite-persistence")]
@@ -1044,6 +1174,13 @@ pub async fn run_job(
         let _ = repo.enqueue_attempt(&attempt_id, &req.thread_id);
         let _ = repo.set_attempt_priority(&attempt_id, priority);
         let _ = repo.set_attempt_tenant_id(&attempt_id, tenant_id.as_deref());
+        let _ = repo.set_attempt_trace_context(
+            &attempt_id,
+            &run_trace.trace_id,
+            run_trace.parent_span_id.as_deref(),
+            &run_trace.span_id,
+            &run_trace.trace_flags,
+        );
         if let Some(policy) = timeout_policy.as_ref() {
             let _ = repo.set_attempt_timeout_policy(&attempt_id, policy);
         }
@@ -1339,6 +1476,7 @@ pub async fn resume_job(
             interrupts,
             idempotency_key: None,
             idempotent_replay: false,
+            trace: None,
         },
     }))
 }
@@ -1386,6 +1524,7 @@ pub async fn replay_job(
             interrupts: Vec::new(),
             idempotency_key: None,
             idempotent_replay: false,
+            trace: None,
         },
     }))
 }
@@ -1986,6 +2125,22 @@ pub async fn job_detail(
             None
         }
     };
+    let trace = {
+        #[cfg(feature = "sqlite-persistence")]
+        {
+            state
+                .runtime_repo
+                .as_ref()
+                .and_then(|repo| repo.latest_attempt_trace_for_run(&thread_id).ok().flatten())
+                .map(TraceContextState::from_row)
+        }
+        #[cfg(not(feature = "sqlite-persistence"))]
+        {
+            None
+        }
+    };
+    let _span = lifecycle_span("job.detail", &rid, Some(&thread_id), None, None, trace.as_ref())
+        .entered();
     Ok(Json(ApiEnvelope {
         meta: ApiMeta::ok(),
         request_id: rid,
@@ -1997,6 +2152,7 @@ pub async fn job_detail(
             history: history_items,
             timeline,
             pending_interrupt,
+            trace: trace.map(|ctx| ctx.to_response()),
         },
     }))
 }
@@ -2096,6 +2252,7 @@ pub async fn worker_poll(
                     tenant_id: None,
                     tenant_active_leases: None,
                     tenant_limit: None,
+                    trace: None,
                 },
             }));
         }
@@ -2120,6 +2277,19 @@ pub async fn worker_poll(
             let lease_expires_at = now + chrono::Duration::seconds(30);
             match repo.upsert_lease(&candidate.attempt_id, &req.worker_id, lease_expires_at) {
                 Ok(lease) => {
+                    let dispatch_trace = repo
+                        .advance_attempt_trace(&candidate.attempt_id, &generate_span_id())
+                        .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
+                        .map(TraceContextState::from_row);
+                    let _span = lifecycle_span(
+                        "attempt.dispatch",
+                        &rid,
+                        None,
+                        Some(&candidate.attempt_id),
+                        Some(&req.worker_id),
+                        dispatch_trace.as_ref(),
+                    )
+                    .entered();
                     return Ok(Json(ApiEnvelope {
                         meta: ApiMeta::ok(),
                         request_id: rid,
@@ -2134,6 +2304,7 @@ pub async fn worker_poll(
                             tenant_id: candidate.tenant_id,
                             tenant_active_leases: None,
                             tenant_limit: None,
+                            trace: dispatch_trace.map(|ctx| ctx.to_response()),
                         },
                     }));
                 }
@@ -2164,6 +2335,7 @@ pub async fn worker_poll(
                     tenant_id: Some(tenant_id),
                     tenant_active_leases: Some(tenant_active),
                     tenant_limit: Some(max_active_per_tenant),
+                    trace: None,
                 },
             }));
         }
@@ -2182,6 +2354,7 @@ pub async fn worker_poll(
                 tenant_id: None,
                 tenant_active_leases: None,
                 tenant_limit: Some(max_active_per_tenant),
+                trace: None,
             },
         }));
     }
@@ -2221,6 +2394,19 @@ pub async fn worker_heartbeat(
         let expires = now + Duration::seconds(ttl);
         repo.heartbeat_lease_with_version(&req.lease_id, &worker_id, lease.version, now, expires)
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
+        let trace = repo
+            .advance_attempt_trace(&lease.attempt_id, &generate_span_id())
+            .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
+            .map(TraceContextState::from_row);
+        let _span = lifecycle_span(
+            "attempt.heartbeat",
+            &rid,
+            None,
+            Some(&lease.attempt_id),
+            Some(&worker_id),
+            trace.as_ref(),
+        )
+        .entered();
         return Ok(Json(ApiEnvelope {
             meta: ApiMeta::ok(),
             request_id: rid,
@@ -2228,6 +2414,7 @@ pub async fn worker_heartbeat(
                 worker_id,
                 lease_id: req.lease_id,
                 lease_expires_at: expires.to_rfc3339(),
+                trace: trace.map(|ctx| ctx.to_response()),
             },
         }));
     }
@@ -2275,7 +2462,7 @@ pub async fn worker_report_step(
     }
 
     #[cfg(feature = "sqlite-persistence")]
-    let report_status = {
+    let (report_status, report_trace) = {
         let repo = runtime_repo(&state, &rid)?;
         match repo.record_step_report(
             &worker_id,
@@ -2284,8 +2471,17 @@ pub async fn worker_report_step(
             &req.status,
             &req.dedupe_token,
         ) {
-            Ok(StepReportWriteResult::Inserted) => "reported".to_string(),
-            Ok(StepReportWriteResult::Duplicate) => "reported_idempotent".to_string(),
+            Ok(outcome) => {
+                let trace = repo
+                    .advance_attempt_trace(&req.attempt_id, &generate_span_id())
+                    .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
+                    .map(TraceContextState::from_row);
+                let status = match outcome {
+                    StepReportWriteResult::Inserted => "reported".to_string(),
+                    StepReportWriteResult::Duplicate => "reported_idempotent".to_string(),
+                };
+                (status, trace)
+            }
             Err(e) => {
                 let msg = e.to_string();
                 if msg.contains("dedupe_token") {
@@ -2297,10 +2493,20 @@ pub async fn worker_report_step(
     };
 
     #[cfg(not(feature = "sqlite-persistence"))]
-    let report_status = {
+    let (report_status, report_trace) = {
         let _ = state;
-        "reported".to_string()
+        ("reported".to_string(), None)
     };
+
+    let _span = lifecycle_span(
+        "attempt.step_report",
+        &rid,
+        None,
+        Some(&req.attempt_id),
+        Some(&worker_id),
+        report_trace.as_ref(),
+    )
+    .entered();
 
     Ok(Json(ApiEnvelope {
         meta: ApiMeta::ok(),
@@ -2310,6 +2516,7 @@ pub async fn worker_report_step(
             status: report_status,
             next_retry_at: None,
             next_attempt_no: None,
+            trace: report_trace.map(|ctx| ctx.to_response()),
         },
     }))
 }
@@ -2344,6 +2551,19 @@ pub async fn worker_ack(
         let outcome = repo
             .ack_attempt(&req.attempt_id, status, retry_policy.as_ref(), Utc::now())
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
+        let trace = repo
+            .advance_attempt_trace(&req.attempt_id, &generate_span_id())
+            .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
+            .map(TraceContextState::from_row);
+        let _span = lifecycle_span(
+            "attempt.ack",
+            &rid,
+            None,
+            Some(&req.attempt_id),
+            Some(&worker_id),
+            trace.as_ref(),
+        )
+        .entered();
         let response_status = match outcome.status {
             AttemptExecutionStatus::RetryBackoff => "retry_scheduled".to_string(),
             AttemptExecutionStatus::Completed => "completed".to_string(),
@@ -2361,6 +2581,7 @@ pub async fn worker_ack(
                 status: response_status,
                 next_retry_at: outcome.next_retry_at.map(|value| value.to_rfc3339()),
                 next_attempt_no: Some(outcome.next_attempt_no),
+                trace: trace.map(|ctx| ctx.to_response()),
             },
         }));
     }
@@ -3656,6 +3877,164 @@ mod tests {
             .unwrap();
         let ack_resp = router.oneshot(ack_req).await.unwrap();
         assert_eq!(ack_resp.status(), StatusCode::OK);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn run_to_worker_flow_propagates_trace_context_end_to_end() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_interrupt_graph().await, ":memory:");
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        let router = build_router(state);
+        let incoming_traceparent = "00-0123456789abcdef0123456789abcdef-1111111111111111-01";
+
+        let run_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/jobs/run")
+            .header("content-type", "application/json")
+            .header("traceparent", incoming_traceparent)
+            .body(Body::from(
+                serde_json::json!({
+                    "thread_id": "trace-run-1",
+                    "input": "trace me"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let run_resp = router.clone().oneshot(run_req).await.unwrap();
+        assert_eq!(run_resp.status(), StatusCode::OK);
+        let run_body = axum::body::to_bytes(run_resp.into_body(), usize::MAX)
+            .await
+            .expect("run body");
+        let run_json: serde_json::Value = serde_json::from_slice(&run_body).expect("run json");
+        let run_trace = run_json["data"]["trace"].clone();
+        assert_eq!(
+            run_trace["trace_id"],
+            "0123456789abcdef0123456789abcdef"
+        );
+        assert_eq!(run_trace["parent_span_id"], "1111111111111111");
+        let run_span_id = run_trace["span_id"].as_str().expect("run span").to_string();
+        let expected_run_traceparent =
+            format!("00-0123456789abcdef0123456789abcdef-{}-01", run_span_id);
+        assert_eq!(
+            run_trace["traceparent"],
+            expected_run_traceparent.as_str()
+        );
+
+        let poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "trace-worker-1"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let poll_resp = router.clone().oneshot(poll_req).await.unwrap();
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body = axum::body::to_bytes(poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("poll body");
+        let poll_json: serde_json::Value = serde_json::from_slice(&poll_body).expect("poll json");
+        assert_eq!(poll_json["data"]["decision"], "dispatched");
+        let attempt_id = poll_json["data"]["attempt_id"]
+            .as_str()
+            .expect("attempt_id")
+            .to_string();
+        let lease_id = poll_json["data"]["lease_id"]
+            .as_str()
+            .expect("lease_id")
+            .to_string();
+        let poll_trace = poll_json["data"]["trace"].clone();
+        assert_eq!(
+            poll_trace["trace_id"],
+            "0123456789abcdef0123456789abcdef"
+        );
+        assert_eq!(poll_trace["parent_span_id"], run_span_id.as_str());
+        let poll_span_id = poll_trace["span_id"].as_str().expect("poll span").to_string();
+        assert_ne!(poll_span_id, run_span_id);
+
+        let hb_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/trace-worker-1/heartbeat")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "lease_id": lease_id,
+                    "lease_ttl_seconds": 10
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let hb_resp = router.clone().oneshot(hb_req).await.unwrap();
+        assert_eq!(hb_resp.status(), StatusCode::OK);
+        let hb_body = axum::body::to_bytes(hb_resp.into_body(), usize::MAX)
+            .await
+            .expect("heartbeat body");
+        let hb_json: serde_json::Value = serde_json::from_slice(&hb_body).expect("heartbeat json");
+        let hb_trace = hb_json["data"]["trace"].clone();
+        assert_eq!(hb_trace["trace_id"], "0123456789abcdef0123456789abcdef");
+        assert_eq!(hb_trace["parent_span_id"], poll_span_id.as_str());
+        let hb_span_id = hb_trace["span_id"]
+            .as_str()
+            .expect("heartbeat span")
+            .to_string();
+
+        let ack_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/trace-worker-1/ack")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "attempt_id": attempt_id,
+                    "terminal_status": "completed"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let ack_resp = router.clone().oneshot(ack_req).await.unwrap();
+        assert_eq!(ack_resp.status(), StatusCode::OK);
+        let ack_body = axum::body::to_bytes(ack_resp.into_body(), usize::MAX)
+            .await
+            .expect("ack body");
+        let ack_json: serde_json::Value = serde_json::from_slice(&ack_body).expect("ack json");
+        let ack_trace = ack_json["data"]["trace"].clone();
+        assert_eq!(ack_trace["trace_id"], "0123456789abcdef0123456789abcdef");
+        assert_eq!(ack_trace["parent_span_id"], hb_span_id.as_str());
+        let ack_span_id = ack_trace["span_id"].as_str().expect("ack span").to_string();
+        let persisted_trace = repo
+            .latest_attempt_trace_for_run("trace-run-1")
+            .expect("persisted trace query")
+            .expect("persisted trace");
+        assert_eq!(persisted_trace.trace_id, "0123456789abcdef0123456789abcdef");
+        assert_eq!(persisted_trace.parent_span_id.as_deref(), Some(hb_span_id.as_str()));
+        assert_eq!(persisted_trace.span_id, ack_span_id);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn run_job_rejects_invalid_traceparent_header() {
+        let router = build_router(ExecutionApiState::with_sqlite_idempotency(
+            build_test_graph().await,
+            ":memory:",
+        ));
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/jobs/run")
+            .header("content-type", "application/json")
+            .header("traceparent", "00-invalid")
+            .body(Body::from(
+                serde_json::json!({
+                    "thread_id": "trace-invalid-1",
+                    "input": "bad trace"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[cfg(feature = "sqlite-persistence")]

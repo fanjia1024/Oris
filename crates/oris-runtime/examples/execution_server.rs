@@ -26,6 +26,8 @@ use oris_runtime::kernel::{
 use oris_runtime::schemas::messages::Message;
 #[cfg(all(feature = "sqlite-persistence", feature = "execution-server"))]
 use serde_json::json;
+#[cfg(all(feature = "sqlite-persistence", feature = "execution-server"))]
+use tracing_subscriber::EnvFilter;
 
 #[cfg(all(feature = "sqlite-persistence", feature = "execution-server"))]
 fn build_compiled(
@@ -60,6 +62,14 @@ async fn healthz() -> impl IntoResponse {
 #[cfg(all(feature = "sqlite-persistence", feature = "execution-server"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::new("info,oris_runtime=info,execution_server=info")
+            }),
+        )
+        .init();
+
     let storage_cfg = RuntimeStorageConfig::from_env("oris_execution_server.db")
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
     storage_cfg
@@ -88,8 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/healthz", get(healthz))
         .merge(build_router(state));
 
-    println!("execution server listening on http://{}", addr);
-    println!(
+    tracing::info!("execution server listening on http://{}", addr);
+    tracing::info!(
         "runtime backend selected: {}",
         match storage_cfg.backend {
             RuntimeStorageBackend::Sqlite => "sqlite",
@@ -97,12 +107,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
     if matches!(storage_cfg.backend, RuntimeStorageBackend::Postgres) {
-        println!(
+        tracing::warn!(
             "note: execution API persistence currently uses sqlite runtime tables; postgres backend is validated at startup for rollout safety"
         );
     }
     if bearer_token.is_some() || api_key.is_some() || api_key_id.is_some() {
-        println!("execution API auth enabled");
+        tracing::info!("execution API auth enabled");
     }
     axum::serve(listener, app).await?;
     Ok(())

@@ -13,7 +13,7 @@ use crate::kernel::identity::{RunId, Seq};
 use super::models::{AttemptDispatchRecord, AttemptExecutionStatus, LeaseRecord};
 use super::repository::RuntimeRepository;
 
-const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 7;
+const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 8;
 
 #[derive(Clone)]
 pub struct SqliteRuntimeRepository {
@@ -120,6 +120,14 @@ pub struct DispatchableAttemptContext {
     pub tenant_id: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttemptTraceContextRow {
+    pub trace_id: String,
+    pub parent_span_id: Option<String>,
+    pub span_id: String,
+    pub trace_flags: String,
+}
+
 impl SqliteRuntimeRepository {
     pub fn new(db_path: &str) -> Result<Self, KernelError> {
         let conn = Connection::open(db_path)
@@ -171,6 +179,10 @@ impl SqliteRuntimeRepository {
         if current < 7 {
             apply_sqlite_runtime_migration_v7(&conn)?;
             record_sqlite_migration(&conn, 7, "attempt_tenant_rate_limits")?;
+        }
+        if current < 8 {
+            apply_sqlite_runtime_migration_v8(&conn)?;
+            record_sqlite_migration(&conn, 8, "attempt_trace_context")?;
         }
         Ok(())
     }
@@ -301,6 +313,119 @@ impl SqliteRuntimeRepository {
         )
         .optional()
         .map_err(|e| KernelError::Driver(format!("get attempt status: {}", e)))
+    }
+
+    pub fn set_attempt_trace_context(
+        &self,
+        attempt_id: &str,
+        trace_id: &str,
+        parent_span_id: Option<&str>,
+        span_id: &str,
+        trace_flags: &str,
+    ) -> Result<(), KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_attempts
+                 SET trace_id = ?2,
+                     trace_parent_span_id = ?3,
+                     trace_span_id = ?4,
+                     trace_flags = ?5
+                 WHERE attempt_id = ?1",
+                params![attempt_id, trace_id, parent_span_id, span_id, trace_flags],
+            )
+            .map_err(|e| KernelError::Driver(format!("set attempt trace context: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "attempt not found for trace update: {}",
+                attempt_id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn get_attempt_trace_context(
+        &self,
+        attempt_id: &str,
+    ) -> Result<Option<AttemptTraceContextRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        conn.query_row(
+            "SELECT trace_id, trace_parent_span_id, trace_span_id, COALESCE(trace_flags, '01')
+             FROM runtime_attempts
+             WHERE attempt_id = ?1
+               AND trace_id IS NOT NULL
+               AND trace_span_id IS NOT NULL",
+            params![attempt_id],
+            |row| {
+                Ok(AttemptTraceContextRow {
+                    trace_id: row.get(0)?,
+                    parent_span_id: row.get(1)?,
+                    span_id: row.get(2)?,
+                    trace_flags: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| KernelError::Driver(format!("get attempt trace context: {}", e)))
+    }
+
+    pub fn latest_attempt_trace_for_run(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<AttemptTraceContextRow>, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        conn.query_row(
+            "SELECT trace_id, trace_parent_span_id, trace_span_id, COALESCE(trace_flags, '01')
+             FROM runtime_attempts
+             WHERE run_id = ?1
+               AND trace_id IS NOT NULL
+               AND trace_span_id IS NOT NULL
+             ORDER BY attempt_no DESC, attempt_id DESC
+             LIMIT 1",
+            params![run_id],
+            |row| {
+                Ok(AttemptTraceContextRow {
+                    trace_id: row.get(0)?,
+                    parent_span_id: row.get(1)?,
+                    span_id: row.get(2)?,
+                    trace_flags: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| KernelError::Driver(format!("latest attempt trace for run: {}", e)))
+    }
+
+    pub fn advance_attempt_trace(
+        &self,
+        attempt_id: &str,
+        next_span_id: &str,
+    ) -> Result<Option<AttemptTraceContextRow>, KernelError> {
+        let Some(current) = self.get_attempt_trace_context(attempt_id)? else {
+            return Ok(None);
+        };
+        self.set_attempt_trace_context(
+            attempt_id,
+            &current.trace_id,
+            Some(&current.span_id),
+            next_span_id,
+            &current.trace_flags,
+        )?;
+        Ok(Some(AttemptTraceContextRow {
+            trace_id: current.trace_id,
+            parent_span_id: Some(current.span_id),
+            span_id: next_span_id.to_string(),
+            trace_flags: current.trace_flags,
+        }))
     }
 
     pub fn set_attempt_started_at_for_test(
@@ -1977,6 +2102,25 @@ fn apply_sqlite_runtime_migration_v7(conn: &Connection) -> Result<(), KernelErro
     Ok(())
 }
 
+fn apply_sqlite_runtime_migration_v8(conn: &Connection) -> Result<(), KernelError> {
+    add_column_if_missing(conn, "runtime_attempts", "trace_id", "TEXT NULL")?;
+    add_column_if_missing(conn, "runtime_attempts", "trace_parent_span_id", "TEXT NULL")?;
+    add_column_if_missing(conn, "runtime_attempts", "trace_span_id", "TEXT NULL")?;
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "trace_flags",
+        "TEXT NOT NULL DEFAULT '01'",
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runtime_attempts_trace_id
+         ON runtime_attempts(trace_id, attempt_id)",
+        [],
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v8: {}", e)))?;
+    Ok(())
+}
+
 fn add_column_if_missing(
     conn: &Connection,
     table: &str,
@@ -2084,6 +2228,10 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
         assert!(column_exists(&conn, "runtime_attempts", "priority"));
         assert!(column_exists(&conn, "runtime_attempts", "tenant_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_parent_span_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_span_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_flags"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
 
@@ -2135,6 +2283,10 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
         assert!(column_exists(&conn, "runtime_attempts", "priority"));
         assert!(column_exists(&conn, "runtime_attempts", "tenant_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_parent_span_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_span_id"));
+        assert!(column_exists(&conn, "runtime_attempts", "trace_flags"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
 
@@ -2195,8 +2347,55 @@ mod tests {
             .optional()
             .expect("query migration v7");
         assert_eq!(migration_v7.as_deref(), Some("attempt_tenant_rate_limits"));
+        let migration_v8: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 8",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v8");
+        assert_eq!(migration_v8.as_deref(), Some("attempt_trace_context"));
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn attempt_trace_context_round_trip_and_advances() {
+        let repo = SqliteRuntimeRepository::new(":memory:").expect("create sqlite repo");
+        repo.enqueue_attempt("attempt-trace-1", "run-trace-1")
+            .expect("enqueue trace attempt");
+        repo.set_attempt_trace_context(
+            "attempt-trace-1",
+            "0123456789abcdef0123456789abcdef",
+            Some("1111111111111111"),
+            "2222222222222222",
+            "01",
+        )
+        .expect("set trace context");
+
+        let current = repo
+            .get_attempt_trace_context("attempt-trace-1")
+            .expect("get trace context")
+            .expect("trace context");
+        assert_eq!(current.trace_id, "0123456789abcdef0123456789abcdef");
+        assert_eq!(current.parent_span_id.as_deref(), Some("1111111111111111"));
+        assert_eq!(current.span_id, "2222222222222222");
+        assert_eq!(current.trace_flags, "01");
+
+        let advanced = repo
+            .advance_attempt_trace("attempt-trace-1", "3333333333333333")
+            .expect("advance trace")
+            .expect("advanced trace");
+        assert_eq!(advanced.parent_span_id.as_deref(), Some("2222222222222222"));
+        assert_eq!(advanced.span_id, "3333333333333333");
+
+        let latest = repo
+            .latest_attempt_trace_for_run("run-trace-1")
+            .expect("latest trace for run")
+            .expect("run trace");
+        assert_eq!(latest.parent_span_id.as_deref(), Some("2222222222222222"));
+        assert_eq!(latest.span_id, "3333333333333333");
     }
 
     #[test]

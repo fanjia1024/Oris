@@ -16,6 +16,14 @@ pub struct ApiMeta {
     pub api_version: &'static str,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceContextResponse {
+    pub trace_id: String,
+    pub span_id: String,
+    pub parent_span_id: Option<String>,
+    pub traceparent: String,
+}
+
 impl ApiMeta {
     pub fn ok() -> Self {
         Self {
@@ -58,6 +66,7 @@ pub struct RunJobResponse {
     pub interrupts: Vec<Value>,
     pub idempotency_key: Option<String>,
     pub idempotent_replay: bool,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -129,6 +138,7 @@ pub struct WorkerPollResponse {
     pub tenant_id: Option<String>,
     pub tenant_active_leases: Option<usize>,
     pub tenant_limit: Option<usize>,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -178,6 +188,7 @@ pub struct WorkerLeaseResponse {
     pub worker_id: String,
     pub lease_id: String,
     pub lease_expires_at: String,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -186,6 +197,7 @@ pub struct WorkerAckResponse {
     pub status: String,
     pub next_retry_at: Option<String>,
     pub next_attempt_no: Option<u32>,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -280,6 +292,7 @@ pub struct JobDetailResponse {
     pub history: Vec<JobHistoryItem>,
     pub timeline: Vec<JobTimelineItem>,
     pub pending_interrupt: Option<InterruptDetailResponse>,
+    pub trace: Option<TraceContextResponse>,
 }
 
 #[derive(Clone, Debug, Serialize)]
