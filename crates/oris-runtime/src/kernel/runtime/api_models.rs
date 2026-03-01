@@ -31,6 +31,7 @@ pub struct RunJobRequest {
     pub input: Option<String>,
     pub idempotency_key: Option<String>,
     pub timeout_policy: Option<TimeoutPolicyRequest>,
+    pub priority: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

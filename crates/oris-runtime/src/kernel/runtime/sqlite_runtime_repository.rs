@@ -13,7 +13,7 @@ use crate::kernel::identity::{RunId, Seq};
 use super::models::{AttemptDispatchRecord, AttemptExecutionStatus, LeaseRecord};
 use super::repository::RuntimeRepository;
 
-const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 5;
+const SQLITE_RUNTIME_SCHEMA_VERSION: i64 = 6;
 
 #[derive(Clone)]
 pub struct SqliteRuntimeRepository {
@@ -158,6 +158,10 @@ impl SqliteRuntimeRepository {
             apply_sqlite_runtime_migration_v5(&conn)?;
             record_sqlite_migration(&conn, 5, "runtime_dead_letter_queue")?;
         }
+        if current < 6 {
+            apply_sqlite_runtime_migration_v6(&conn)?;
+            record_sqlite_migration(&conn, 6, "attempt_priority_dispatch_order")?;
+        }
         Ok(())
     }
 
@@ -213,6 +217,26 @@ impl SqliteRuntimeRepository {
         if updated == 0 {
             return Err(KernelError::Driver(format!(
                 "attempt not found for timeout policy: {}",
+                attempt_id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn set_attempt_priority(&self, attempt_id: &str, priority: i32) -> Result<(), KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let updated = conn
+            .execute(
+                "UPDATE runtime_attempts SET priority = ?2 WHERE attempt_id = ?1",
+                params![attempt_id, priority],
+            )
+            .map_err(|e| KernelError::Driver(format!("set attempt priority: {}", e)))?;
+        if updated == 0 {
+            return Err(KernelError::Driver(format!(
+                "attempt not found for priority update: {}",
                 attempt_id
             )));
         }
@@ -1355,7 +1379,7 @@ impl RuntimeRepository for SqliteRuntimeRepository {
                      a.status = 'queued'
                      OR (a.status = 'retry_backoff' AND (a.retry_at_ms IS NULL OR a.retry_at_ms <= ?1))
                    )
-                 ORDER BY a.attempt_no ASC, a.attempt_id ASC
+                 ORDER BY a.priority DESC, a.attempt_no ASC, a.attempt_id ASC
                  LIMIT ?2",
             )
             .map_err(|e| KernelError::Driver(format!("prepare list dispatchable attempts: {}", e)))?;
@@ -1827,6 +1851,22 @@ fn apply_sqlite_runtime_migration_v5(conn: &Connection) -> Result<(), KernelErro
     Ok(())
 }
 
+fn apply_sqlite_runtime_migration_v6(conn: &Connection) -> Result<(), KernelError> {
+    add_column_if_missing(
+        conn,
+        "runtime_attempts",
+        "priority",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runtime_attempts_status_priority_retry
+         ON runtime_attempts(status, priority DESC, retry_at_ms)",
+        [],
+    )
+    .map_err(|e| KernelError::Driver(format!("apply sqlite runtime migration v6: {}", e)))?;
+    Ok(())
+}
+
 fn add_column_if_missing(
     conn: &Connection,
     table: &str,
@@ -1932,6 +1972,7 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "execution_timeout_ms"));
         assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
+        assert!(column_exists(&conn, "runtime_attempts", "priority"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
 
@@ -1981,6 +2022,7 @@ mod tests {
         assert!(column_exists(&conn, "runtime_attempts", "execution_timeout_ms"));
         assert!(column_exists(&conn, "runtime_attempts", "timeout_terminal_status"));
         assert!(column_exists(&conn, "runtime_attempts", "started_at_ms"));
+        assert!(column_exists(&conn, "runtime_attempts", "priority"));
         assert!(table_exists(&conn, "runtime_attempt_retry_history"));
         assert!(table_exists(&conn, "runtime_dead_letters"));
 
@@ -2023,6 +2065,15 @@ mod tests {
             .optional()
             .expect("query migration v5");
         assert_eq!(migration_v5.as_deref(), Some("runtime_dead_letter_queue"));
+        let migration_v6: Option<String> = conn
+            .query_row(
+                "SELECT name FROM runtime_schema_migrations WHERE version = 6",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query migration v6");
+        assert_eq!(migration_v6.as_deref(), Some("attempt_priority_dispatch_order"));
 
         let _ = fs::remove_file(path);
     }
@@ -2161,5 +2212,25 @@ mod tests {
             .expect("read replayed attempt status")
             .expect("attempt exists");
         assert_eq!(status, AttemptExecutionStatus::Queued);
+    }
+
+    #[test]
+    fn list_dispatchable_attempts_prefers_higher_priority_first() {
+        let repo = SqliteRuntimeRepository::new(":memory:").expect("create sqlite repo");
+        repo.enqueue_attempt("attempt-priority-low", "run-priority")
+            .expect("enqueue low priority");
+        repo.enqueue_attempt("attempt-priority-high", "run-priority")
+            .expect("enqueue high priority");
+        repo.set_attempt_priority("attempt-priority-low", 10)
+            .expect("set low priority");
+        repo.set_attempt_priority("attempt-priority-high", 90)
+            .expect("set high priority");
+
+        let rows = repo
+            .list_dispatchable_attempts(Utc::now(), 10)
+            .expect("list dispatchable attempts");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].attempt_id, "attempt-priority-high");
+        assert_eq!(rows[1].attempt_id, "attempt-priority-low");
     }
 }

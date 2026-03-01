@@ -377,6 +377,7 @@ fn payload_hash(
     thread_id: &str,
     input: &str,
     timeout_policy: Option<&TimeoutPolicyRequest>,
+    priority: i32,
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(thread_id.as_bytes());
@@ -388,6 +389,8 @@ fn payload_hash(
             hasher.update(bytes);
         }
     }
+    hasher.update(b"|");
+    hasher.update(priority.to_string().as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
@@ -890,6 +893,15 @@ fn parse_timeout_policy(
     }))
 }
 
+fn parse_priority(priority: Option<i32>, rid: &str) -> Result<i32, ApiError> {
+    let priority = priority.unwrap_or(0);
+    if !(0..=100).contains(&priority) {
+        return Err(ApiError::bad_request("priority must be between 0 and 100")
+            .with_request_id(rid.to_string()));
+    }
+    Ok(priority)
+}
+
 pub async fn run_job(
     State(state): State<ExecutionApiState>,
     headers: HeaderMap,
@@ -902,7 +914,9 @@ pub async fn run_job(
         .map_err(|e| e.with_request_id(rid.clone()))?;
 
     let input = req.input.unwrap_or_else(|| "API run".to_string());
-    let request_payload_hash = payload_hash(&req.thread_id, &input, req.timeout_policy.as_ref());
+    let priority = parse_priority(req.priority, &rid)?;
+    let request_payload_hash =
+        payload_hash(&req.thread_id, &input, req.timeout_policy.as_ref(), priority);
     log::info!(
         "execution_run request_id={} thread_id={} checkpoint_id=none",
         rid,
@@ -984,8 +998,8 @@ pub async fn run_job(
 
     #[cfg(feature = "sqlite-persistence")]
     {
-        if timeout_policy.is_some() && state.runtime_repo.is_none() {
-            return Err(ApiError::internal("timeout_policy requires runtime repository")
+        if (timeout_policy.is_some() || priority != 0) && state.runtime_repo.is_none() {
+            return Err(ApiError::internal("runtime scheduling options require runtime repository")
                 .with_request_id(rid.clone()));
         }
     }
@@ -995,6 +1009,7 @@ pub async fn run_job(
         let attempt_id = format!("attempt-{}-{}", req.thread_id, uuid::Uuid::new_v4());
         let _ = repo.upsert_job(&req.thread_id, &status);
         let _ = repo.enqueue_attempt(&attempt_id, &req.thread_id);
+        let _ = repo.set_attempt_priority(&attempt_id, priority);
         if let Some(policy) = timeout_policy.as_ref() {
             let _ = repo.set_attempt_timeout_policy(&attempt_id, policy);
         }
@@ -3824,6 +3839,63 @@ mod tests {
             .expect("dlq row exists");
         assert_eq!(dlq_row.replay_status, "replayed");
         assert_eq!(dlq_row.replay_count, 1);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn worker_poll_prefers_higher_priority_attempts() {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:");
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        repo.enqueue_attempt("attempt-priority-low", "run-priority-api")
+            .expect("enqueue low priority");
+        repo.enqueue_attempt("attempt-priority-high", "run-priority-api")
+            .expect("enqueue high priority");
+        repo.set_attempt_priority("attempt-priority-low", 5)
+            .expect("set low priority");
+        repo.set_attempt_priority("attempt-priority-high", 80)
+            .expect("set high priority");
+        let router = build_router(state);
+
+        let first_poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-priority-1"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let first_poll_resp = router.clone().oneshot(first_poll_req).await.unwrap();
+        assert_eq!(first_poll_resp.status(), StatusCode::OK);
+        let first_poll_body = axum::body::to_bytes(first_poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("first priority poll body");
+        let first_poll_json: serde_json::Value =
+            serde_json::from_slice(&first_poll_body).expect("first priority poll json");
+        assert_eq!(first_poll_json["data"]["attempt_id"], "attempt-priority-high");
+
+        let second_poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "worker-priority-2"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let second_poll_resp = router.oneshot(second_poll_req).await.unwrap();
+        assert_eq!(second_poll_resp.status(), StatusCode::OK);
+        let second_poll_body = axum::body::to_bytes(second_poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("second priority poll body");
+        let second_poll_json: serde_json::Value =
+            serde_json::from_slice(&second_poll_body).expect("second priority poll json");
+        assert_eq!(second_poll_json["data"]["attempt_id"], "attempt-priority-low");
     }
 
     #[cfg(feature = "sqlite-persistence")]
