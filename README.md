@@ -316,6 +316,7 @@ Dead-letter queue API:
 
 Execution server endpoints (v1 runtime-bin):
 
+- `GET /metrics` — Prometheus scrape endpoint for runtime metrics (`queue_depth`, `dispatch_latency_ms`, `lease_conflict_rate`, `recovery_latency_ms`)
 - `POST /v1/jobs/run`
   Optional request fields: `timeout_policy` with `{ "timeout_ms": <positive>, "on_timeout_status": "failed"|"cancelled" }`, `priority` (`0..100`, higher dispatches first), and `tenant_id` (stable throttling key). Optional header: `traceparent` (`00-<trace_id>-<span_id>-<flags>`) to continue an upstream W3C/OpenTelemetry trace; responses return `data.trace`.
 - `GET /v1/jobs` — list jobs (query: `status`, `limit`, `offset`)
@@ -364,6 +365,14 @@ Run idempotency contract (`POST /v1/jobs/run`):
 - Same `idempotency_key` + same payload returns the stored semantic result with `data.idempotent_replay=true`.
 - Same `idempotency_key` + different payload returns `409 conflict`.
 - Trace metadata is observational only and does not participate in idempotency matching.
+
+Prometheus metrics contract:
+
+- `oris_runtime_queue_depth` — current dispatchable queue depth gauge
+- `oris_runtime_dispatch_latency_ms` — dispatch latency histogram
+- `oris_runtime_lease_operations_total` / `oris_runtime_lease_conflicts_total` — lease operation and conflict counters
+- `oris_runtime_lease_conflict_rate` — derived conflict-rate gauge
+- `oris_runtime_recovery_latency_ms` — failover recovery latency histogram
 
 Execution API error contract:
 

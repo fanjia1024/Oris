@@ -118,6 +118,7 @@ pub struct DeadLetterRow {
 pub struct DispatchableAttemptContext {
     pub attempt_id: String,
     pub tenant_id: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -559,6 +560,28 @@ impl SqliteRuntimeRepository {
         Ok(count as usize)
     }
 
+    pub fn queue_depth(&self, now: DateTime<Utc>) -> Result<usize, KernelError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM runtime_attempts a
+                 LEFT JOIN runtime_leases l ON l.attempt_id = a.attempt_id AND l.lease_expires_at_ms >= ?1
+                 WHERE l.attempt_id IS NULL
+                   AND (
+                     a.status = 'queued'
+                     OR (a.status = 'retry_backoff' AND (a.retry_at_ms IS NULL OR a.retry_at_ms <= ?1))
+                   )",
+                params![dt_to_ms(now)],
+                |r| r.get(0),
+            )
+            .map_err(|e| KernelError::Driver(format!("queue depth: {}", e)))?;
+        Ok(count as usize)
+    }
+
     pub fn list_dispatchable_attempt_contexts(
         &self,
         now: DateTime<Utc>,
@@ -570,7 +593,7 @@ impl SqliteRuntimeRepository {
             .map_err(|_| KernelError::Driver("sqlite runtime repo lock poisoned".to_string()))?;
         let mut stmt = conn
             .prepare(
-                "SELECT a.attempt_id, a.tenant_id
+                "SELECT a.attempt_id, a.tenant_id, a.started_at_ms
                  FROM runtime_attempts a
                  LEFT JOIN runtime_leases l ON l.attempt_id = a.attempt_id AND l.lease_expires_at_ms >= ?1
                  WHERE l.attempt_id IS NULL
@@ -584,9 +607,11 @@ impl SqliteRuntimeRepository {
             .map_err(|e| KernelError::Driver(format!("prepare dispatchable contexts: {}", e)))?;
         let rows = stmt
             .query_map(params![dt_to_ms(now), limit as i64], |row| {
+                let started_at_ms: Option<i64> = row.get(2)?;
                 Ok(DispatchableAttemptContext {
                     attempt_id: row.get(0)?,
                     tenant_id: row.get(1)?,
+                    started_at: started_at_ms.map(ms_to_dt),
                 })
             })
             .map_err(|e| KernelError::Driver(format!("query dispatchable contexts: {}", e)))?;

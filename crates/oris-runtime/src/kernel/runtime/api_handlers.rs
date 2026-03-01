@@ -1,10 +1,14 @@
 //! Axum handlers for Phase 2 execution server.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{header::AUTHORIZATION, HeaderMap};
+use axum::http::{
+    header::{AUTHORIZATION, CONTENT_TYPE},
+    HeaderMap,
+};
 use axum::middleware::{from_fn, from_fn_with_state, Next};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -98,6 +102,185 @@ pub struct StaticApiKeyConfig {
     pub role: ApiRole,
 }
 
+const METRIC_BUCKETS_MS: [f64; 9] = [1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0];
+
+#[derive(Clone, Debug)]
+pub struct RuntimeMetrics {
+    inner: Arc<Mutex<RuntimeMetricsInner>>,
+}
+
+#[derive(Debug)]
+struct RuntimeMetricsInner {
+    lease_operations_total: u64,
+    lease_conflicts_total: u64,
+    dispatch_latency_ms_sum: f64,
+    dispatch_latency_ms_count: u64,
+    dispatch_latency_ms_buckets: [u64; METRIC_BUCKETS_MS.len()],
+    recovery_latency_ms_sum: f64,
+    recovery_latency_ms_count: u64,
+    recovery_latency_ms_buckets: [u64; METRIC_BUCKETS_MS.len()],
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeMetricsSnapshot {
+    lease_operations_total: u64,
+    lease_conflicts_total: u64,
+    dispatch_latency_ms_sum: f64,
+    dispatch_latency_ms_count: u64,
+    dispatch_latency_ms_buckets: [u64; METRIC_BUCKETS_MS.len()],
+    recovery_latency_ms_sum: f64,
+    recovery_latency_ms_count: u64,
+    recovery_latency_ms_buckets: [u64; METRIC_BUCKETS_MS.len()],
+}
+
+impl Default for RuntimeMetrics {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(RuntimeMetricsInner {
+                lease_operations_total: 0,
+                lease_conflicts_total: 0,
+                dispatch_latency_ms_sum: 0.0,
+                dispatch_latency_ms_count: 0,
+                dispatch_latency_ms_buckets: [0; METRIC_BUCKETS_MS.len()],
+                recovery_latency_ms_sum: 0.0,
+                recovery_latency_ms_count: 0,
+                recovery_latency_ms_buckets: [0; METRIC_BUCKETS_MS.len()],
+            })),
+        }
+    }
+}
+
+impl RuntimeMetrics {
+    fn record_lease_operation(&self) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.lease_operations_total += 1;
+        }
+    }
+
+    fn record_lease_conflict(&self) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.lease_conflicts_total += 1;
+        }
+    }
+
+    fn record_dispatch_latency_ms(&self, latency_ms: f64) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.dispatch_latency_ms_sum += latency_ms;
+            inner.dispatch_latency_ms_count += 1;
+            record_histogram_bucket(&mut inner.dispatch_latency_ms_buckets, latency_ms);
+        }
+    }
+
+    fn record_recovery_latency_ms(&self, latency_ms: f64) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.recovery_latency_ms_sum += latency_ms;
+            inner.recovery_latency_ms_count += 1;
+            record_histogram_bucket(&mut inner.recovery_latency_ms_buckets, latency_ms);
+        }
+    }
+
+    fn snapshot(&self) -> RuntimeMetricsSnapshot {
+        if let Ok(inner) = self.inner.lock() {
+            RuntimeMetricsSnapshot {
+                lease_operations_total: inner.lease_operations_total,
+                lease_conflicts_total: inner.lease_conflicts_total,
+                dispatch_latency_ms_sum: inner.dispatch_latency_ms_sum,
+                dispatch_latency_ms_count: inner.dispatch_latency_ms_count,
+                dispatch_latency_ms_buckets: inner.dispatch_latency_ms_buckets,
+                recovery_latency_ms_sum: inner.recovery_latency_ms_sum,
+                recovery_latency_ms_count: inner.recovery_latency_ms_count,
+                recovery_latency_ms_buckets: inner.recovery_latency_ms_buckets,
+            }
+        } else {
+            RuntimeMetricsSnapshot {
+                lease_operations_total: 0,
+                lease_conflicts_total: 0,
+                dispatch_latency_ms_sum: 0.0,
+                dispatch_latency_ms_count: 0,
+                dispatch_latency_ms_buckets: [0; METRIC_BUCKETS_MS.len()],
+                recovery_latency_ms_sum: 0.0,
+                recovery_latency_ms_count: 0,
+                recovery_latency_ms_buckets: [0; METRIC_BUCKETS_MS.len()],
+            }
+        }
+    }
+
+    fn render_prometheus(&self, queue_depth: usize) -> String {
+        let snapshot = self.snapshot();
+        let conflict_rate = if snapshot.lease_operations_total == 0 {
+            0.0
+        } else {
+            snapshot.lease_conflicts_total as f64 / snapshot.lease_operations_total as f64
+        };
+
+        let mut out = String::new();
+        out.push_str("# HELP oris_runtime_queue_depth Number of dispatchable attempts currently queued.\n");
+        out.push_str("# TYPE oris_runtime_queue_depth gauge\n");
+        out.push_str(&format!("oris_runtime_queue_depth {}\n", queue_depth));
+        out.push_str("# HELP oris_runtime_lease_operations_total Total lease-sensitive operations observed.\n");
+        out.push_str("# TYPE oris_runtime_lease_operations_total counter\n");
+        out.push_str(&format!(
+            "oris_runtime_lease_operations_total {}\n",
+            snapshot.lease_operations_total
+        ));
+        out.push_str("# HELP oris_runtime_lease_conflicts_total Total lease conflicts observed.\n");
+        out.push_str("# TYPE oris_runtime_lease_conflicts_total counter\n");
+        out.push_str(&format!(
+            "oris_runtime_lease_conflicts_total {}\n",
+            snapshot.lease_conflicts_total
+        ));
+        out.push_str("# HELP oris_runtime_lease_conflict_rate Lease conflicts divided by lease operations.\n");
+        out.push_str("# TYPE oris_runtime_lease_conflict_rate gauge\n");
+        out.push_str(&format!("oris_runtime_lease_conflict_rate {:.6}\n", conflict_rate));
+        render_histogram(
+            &mut out,
+            "oris_runtime_dispatch_latency_ms",
+            "Dispatch latency in milliseconds.",
+            &snapshot.dispatch_latency_ms_buckets,
+            snapshot.dispatch_latency_ms_count,
+            snapshot.dispatch_latency_ms_sum,
+        );
+        render_histogram(
+            &mut out,
+            "oris_runtime_recovery_latency_ms",
+            "Failover recovery latency in milliseconds.",
+            &snapshot.recovery_latency_ms_buckets,
+            snapshot.recovery_latency_ms_count,
+            snapshot.recovery_latency_ms_sum,
+        );
+        out
+    }
+}
+
+fn record_histogram_bucket(buckets: &mut [u64; METRIC_BUCKETS_MS.len()], value: f64) {
+    for (idx, upper_bound) in METRIC_BUCKETS_MS.iter().enumerate() {
+        if value <= *upper_bound {
+            buckets[idx] += 1;
+        }
+    }
+}
+
+fn render_histogram(
+    out: &mut String,
+    metric_name: &str,
+    help: &str,
+    buckets: &[u64; METRIC_BUCKETS_MS.len()],
+    count: u64,
+    sum: f64,
+) {
+    out.push_str(&format!("# HELP {} {}\n", metric_name, help));
+    out.push_str(&format!("# TYPE {} histogram\n", metric_name));
+    for (idx, upper_bound) in METRIC_BUCKETS_MS.iter().enumerate() {
+        out.push_str(&format!(
+            "{}_bucket{{le=\"{}\"}} {}\n",
+            metric_name, upper_bound, buckets[idx]
+        ));
+    }
+    out.push_str(&format!("{}_bucket{{le=\"+Inf\"}} {}\n", metric_name, count));
+    out.push_str(&format!("{}_sum {:.6}\n", metric_name, sum));
+    out.push_str(&format!("{}_count {}\n", metric_name, count));
+}
+
 impl ExecutionApiAuthConfig {
     fn normalize_secret(secret: Option<String>) -> Option<String> {
         secret.and_then(|v| {
@@ -173,6 +356,7 @@ pub struct ExecutionApiState {
     pub idempotency_store: Option<SqliteIdempotencyStore>,
     #[cfg(feature = "sqlite-persistence")]
     pub runtime_repo: Option<SqliteRuntimeRepository>,
+    pub runtime_metrics: RuntimeMetrics,
     pub worker_poll_limit: usize,
     pub max_active_leases_per_worker: usize,
     pub max_active_leases_per_tenant: usize,
@@ -188,6 +372,7 @@ impl ExecutionApiState {
             idempotency_store: None,
             #[cfg(feature = "sqlite-persistence")]
             runtime_repo: None,
+            runtime_metrics: RuntimeMetrics::default(),
             worker_poll_limit: 1,
             max_active_leases_per_worker: 8,
             max_active_leases_per_tenant: 8,
@@ -308,7 +493,7 @@ impl ExecutionApiState {
 }
 
 pub fn build_router(state: ExecutionApiState) -> Router {
-    Router::new()
+    let secured = Router::new()
         .route("/v1/audit/logs", get(list_audit_logs))
         .route("/v1/attempts/:attempt_id/retries", get(list_attempt_retries))
         .route("/v1/dlq", get(list_dead_letters))
@@ -352,7 +537,28 @@ pub fn build_router(state: ExecutionApiState) -> Router {
         .layer(from_fn_with_state(state.clone(), auth_middleware))
         .layer(from_fn(request_log_middleware))
         .layer(from_fn_with_state(state.clone(), audit_middleware))
+        .with_state(state.clone());
+
+    Router::new()
+        .route("/metrics", get(metrics_endpoint))
         .with_state(state)
+        .merge(secured)
+}
+
+async fn metrics_endpoint(State(state): State<ExecutionApiState>) -> impl IntoResponse {
+    #[cfg(feature = "sqlite-persistence")]
+    let queue_depth = state
+        .runtime_repo
+        .as_ref()
+        .and_then(|repo| repo.queue_depth(Utc::now()).ok())
+        .unwrap_or(0);
+    #[cfg(not(feature = "sqlite-persistence"))]
+    let queue_depth = 0usize;
+
+    (
+        [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        state.runtime_metrics.render_prometheus(queue_depth),
+    )
 }
 
 fn request_id(headers: &HeaderMap) -> String {
@@ -2228,6 +2434,7 @@ pub async fn worker_poll(
             .unwrap_or(state.max_active_leases_per_tenant)
             .max(1);
         let now = Utc::now();
+        let poll_started = Instant::now();
 
         let lease_manager = RepositoryLeaseManager::new(repo.clone(), LeaseConfig::default());
         lease_manager
@@ -2275,8 +2482,18 @@ pub async fn worker_poll(
             }
 
             let lease_expires_at = now + chrono::Duration::seconds(30);
+            state.runtime_metrics.record_lease_operation();
             match repo.upsert_lease(&candidate.attempt_id, &req.worker_id, lease_expires_at) {
                 Ok(lease) => {
+                    let dispatch_latency_ms = poll_started.elapsed().as_secs_f64() * 1000.0;
+                    state
+                        .runtime_metrics
+                        .record_dispatch_latency_ms(dispatch_latency_ms);
+                    if candidate.started_at.is_some() {
+                        state
+                            .runtime_metrics
+                            .record_recovery_latency_ms(dispatch_latency_ms);
+                    }
                     let dispatch_trace = repo
                         .advance_attempt_trace(&candidate.attempt_id, &generate_span_id())
                         .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
@@ -2313,6 +2530,7 @@ pub async fn worker_poll(
                     if msg.contains("active lease already exists")
                         || msg.contains("not dispatchable")
                     {
+                        state.runtime_metrics.record_lease_conflict();
                         continue;
                     }
                     return Err(ApiError::internal(msg).with_request_id(rid.clone()));
@@ -2377,11 +2595,13 @@ pub async fn worker_heartbeat(
     #[cfg(feature = "sqlite-persistence")]
     {
         let repo = runtime_repo(&state, &rid)?;
+        state.runtime_metrics.record_lease_operation();
         let lease = repo
             .get_lease_by_id(&req.lease_id)
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
             .ok_or_else(|| ApiError::not_found("lease not found").with_request_id(rid.clone()))?;
         if lease.worker_id != worker_id {
+            state.runtime_metrics.record_lease_conflict();
             return Err(ApiError::conflict("lease ownership mismatch")
                 .with_request_id(rid.clone())
                 .with_details(serde_json::json!({
@@ -2392,8 +2612,14 @@ pub async fn worker_heartbeat(
         let ttl = req.lease_ttl_seconds.unwrap_or(30).max(1);
         let now = Utc::now();
         let expires = now + Duration::seconds(ttl);
-        repo.heartbeat_lease_with_version(&req.lease_id, &worker_id, lease.version, now, expires)
-            .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
+        if let Err(err) =
+            repo.heartbeat_lease_with_version(&req.lease_id, &worker_id, lease.version, now, expires)
+        {
+            if err.to_string().contains("lease heartbeat version conflict") {
+                state.runtime_metrics.record_lease_conflict();
+            }
+            return Err(ApiError::internal(err.to_string()).with_request_id(rid.clone()));
+        }
         let trace = repo
             .advance_attempt_trace(&lease.attempt_id, &generate_span_id())
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
@@ -4035,6 +4261,107 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn metrics_endpoint_is_scrape_ready_and_exposes_runtime_metrics() {
+        let state = ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:")
+            .with_static_api_key("metrics-key");
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        repo.enqueue_attempt("attempt-metrics-a", "run-metrics-1")
+            .expect("enqueue a");
+        repo.enqueue_attempt("attempt-metrics-b", "run-metrics-1")
+            .expect("enqueue b");
+        let router = build_router(state);
+
+        let poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .header("x-api-key", "metrics-key")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "metrics-worker-1"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let poll_resp = router.clone().oneshot(poll_req).await.unwrap();
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body = axum::body::to_bytes(poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("metrics poll body");
+        let poll_json: serde_json::Value = serde_json::from_slice(&poll_body).expect("metrics poll json");
+        let lease_id = poll_json["data"]["lease_id"]
+            .as_str()
+            .expect("metrics lease")
+            .to_string();
+
+        let wrong_hb_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/metrics-worker-other/heartbeat")
+            .header("content-type", "application/json")
+            .header("x-api-key", "metrics-key")
+            .body(Body::from(
+                serde_json::json!({
+                    "lease_id": lease_id,
+                    "lease_ttl_seconds": 5
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let wrong_hb_resp = router.clone().oneshot(wrong_hb_req).await.unwrap();
+        assert_eq!(wrong_hb_resp.status(), StatusCode::CONFLICT);
+
+        repo.heartbeat_lease(
+            &lease_id,
+            Utc::now() - Duration::seconds(40),
+            Utc::now() - Duration::seconds(20),
+        )
+        .expect("force expire metrics lease");
+
+        let recovery_poll_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .header("x-api-key", "metrics-key")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "metrics-worker-2"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let recovery_poll_resp = router.clone().oneshot(recovery_poll_req).await.unwrap();
+        assert_eq!(recovery_poll_resp.status(), StatusCode::OK);
+
+        let metrics_req = Request::builder()
+            .method(Method::GET)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let metrics_resp = router.oneshot(metrics_req).await.unwrap();
+        assert_eq!(metrics_resp.status(), StatusCode::OK);
+        assert_eq!(
+            metrics_resp
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok()),
+            Some("text/plain; version=0.0.4; charset=utf-8")
+        );
+        let metrics_body = axum::body::to_bytes(metrics_resp.into_body(), usize::MAX)
+            .await
+            .expect("metrics body");
+        let metrics_text = String::from_utf8(metrics_body.to_vec()).expect("metrics utf8");
+
+        assert!(metrics_text.contains("# HELP oris_runtime_queue_depth"));
+        assert!(metrics_text.contains("oris_runtime_queue_depth 1"));
+        assert!(metrics_text.contains("oris_runtime_lease_operations_total 3"));
+        assert!(metrics_text.contains("oris_runtime_lease_conflicts_total 1"));
+        assert!(metrics_text.contains("oris_runtime_lease_conflict_rate 0.333333"));
+        assert!(metrics_text.contains("oris_runtime_dispatch_latency_ms_count 2"));
+        assert!(metrics_text.contains("oris_runtime_recovery_latency_ms_count 1"));
     }
 
     #[cfg(feature = "sqlite-persistence")]
