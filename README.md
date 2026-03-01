@@ -241,6 +241,10 @@ The following modules are the **stable surface** for building on Oris. Prefer th
 
 State types (e.g. `graph::MessagesState`, `graph::State`) are part of the stable graph API. [Full API docs](https://docs.rs/oris-runtime).
 
+For human-in-the-loop checkpoint persistence in async runtimes, `oris_runtime::agent::AgentCheckpointer`
+now exposes async-compatible `put_async` / `get_async` helpers while keeping the existing synchronous
+`put` / `get` methods for backward compatibility.
+
 ## Install and config
 
 ```bash
