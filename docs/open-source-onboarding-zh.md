@@ -26,9 +26,11 @@ cargo add oris-runtime --features sqlite-persistence
 
 ## 2. 5 分钟跑通（推荐路径）
 
-仓库内已提供完整 starter 工程（Axum + Oris Runtime）：
+仓库内已提供可直接运行的集成路径：
 
 - `examples/oris_starter_axum`
+- `examples/oris_worker_tokio`
+- `examples/oris_operator_cli`
 - `examples/templates`（三套可脚手架模板）
 
 启动：
@@ -41,6 +43,11 @@ cargo run -p oris_starter_axum
 
 - `ORIS_SERVER_ADDR=127.0.0.1:8080`
 - `ORIS_SQLITE_DB=oris_starter.db`
+
+如果你不是要嵌入 HTTP 服务，而是只需要 worker 或运维 CLI：
+
+- 独立 worker：`cargo run -p oris_worker_tokio`
+- 运维 CLI：`cargo run -p oris_operator_cli -- --help`
 
 ### API 冒烟验证
 
@@ -77,11 +84,13 @@ cargo generate --git https://github.com/Colin4k1024/Oris.git --subfolder example
 
 推荐接入方式：
 
-1. 在现有 Axum/Actix 服务中挂载 Oris API 路由（独立前缀）。
-2. 使用 Tokio 运行时，避免阻塞式操作进入 async handler。
-3. 默认启用 `sqlite-persistence`，将 `thread_id` 作为稳定业务键。
-4. 为 run/resume/report-step 建立幂等键策略。
-5. 全链路接入 `tracing`，日志字段至少包含 `thread_id`、`run_id`、`attempt_id`。
+1. 如果你要把 Oris 直接挂进业务 HTTP 服务，先从 `examples/oris_starter_axum` 开始。
+2. 如果控制面已独立部署、你只需要执行器，先从 `examples/oris_worker_tokio` 开始。
+3. 如果你只需要 SRE/运营入口，先从 `examples/oris_operator_cli` 开始。
+4. 使用 Tokio 运行时，避免阻塞式操作进入 async handler。
+5. 默认启用 `sqlite-persistence`，将 `thread_id` 作为稳定业务键。
+6. 为 run/resume/report-step 建立幂等键策略。
+7. 全链路接入 `tracing`，日志字段至少包含 `thread_id`、`run_id`、`attempt_id`。
 
 参考文档：
 
@@ -115,9 +124,10 @@ cargo generate --git https://github.com/Colin4k1024/Oris.git --subfolder example
 
 ## 6. 下一步建议
 
-1. 先复制 `examples/oris_starter_axum`，替换成你的业务 graph 节点。
-2. 为你的 `thread_id` 设计稳定主键规则（建议与业务实体一一映射）。
-3. 把“崩溃恢复 + replay 等价 + interrupt 恢复”三类测试接入 CI。
+1. 先选最近的集成路径：`oris_starter_axum` / `oris_worker_tokio` / `oris_operator_cli`。
+2. 再替换成你的业务 graph 节点或操作命令。
+3. 为你的 `thread_id` 设计稳定主键规则（建议与业务实体一一映射）。
+4. 把“崩溃恢复 + replay 等价 + interrupt 恢复”三类测试接入 CI。
 
 ## 7. 批量创建路线图 Issue（可选）
 

@@ -275,6 +275,8 @@ Common environment variables:
 - [Hello World graph](crates/oris-runtime/examples/graph_hello_world.rs)
 - [Custom node plugins](crates/oris-runtime/examples/custom_node_plugins.rs) — register a typed runtime plugin and add a node from JSON config.
 - [Starter service project (Axum)](examples/oris_starter_axum/README.md) — standalone workspace example for integrating Oris into a Rust backend.
+- [Standalone worker (Tokio)](examples/oris_worker_tokio/README.md) — concrete `poll/heartbeat/ack` worker process when the execution server already exists.
+- [Operator CLI](examples/oris_operator_cli/README.md) — concrete terminal client for `run/list/inspect/resume/replay/cancel`.
 - [Template matrix (service/worker/operator)](examples/templates/README.md) — `cargo-generate`-ready skeletons for external users.
 
 Scaffold one of the starter archetypes directly:

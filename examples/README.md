@@ -7,8 +7,23 @@ This directory contains standalone workspace example projects (separate from `cr
 - `oris_starter_axum`:
   - Starter service template for integrating Oris runtime into an Axum backend.
   - Includes durable execution endpoints and health checks.
+- `oris_worker_tokio`:
+  - Standalone worker loop for teams that already host Oris APIs elsewhere.
+  - Covers `poll/heartbeat/ack` in a plain Tokio process.
+- `oris_operator_cli`:
+  - Concrete operator command-line client for `run/list/inspect/resume/replay/cancel`.
+  - Good fit for SRE and incident-response workflows.
 - `vector_store_surrealdb`:
   - Example integration with SurrealDB vector store.
+
+## Which example should you start from?
+
+| Example | Choose it when | Primary runtime shape |
+|---|---|---|
+| `oris_starter_axum` | You want to embed Oris directly into a Rust service and own the HTTP layer. | App-local service |
+| `oris_worker_tokio` | An execution server already exists and this process should only run work. | Standalone worker |
+| `oris_operator_cli` | Operators need direct control-plane access from a terminal. | CLI client |
+| `vector_store_surrealdb` | You are validating vector-store integration, not the execution service path. | Storage integration |
 
 ## Template matrix
 
@@ -40,5 +55,7 @@ From repository root:
 
 ```bash
 cargo run -p oris_starter_axum
+cargo run -p oris_worker_tokio
+cargo run -p oris_operator_cli -- --help
 cargo run -p vector_store_surrealdb
 ```

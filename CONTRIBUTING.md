@@ -58,6 +58,8 @@ cargo test -p oris-runtime graph::plugin::tests:: -- --nocapture
 cargo check -p oris-runtime --example custom_node_plugins --offline
 cargo check -p oris-runtime --example execution_server --features "sqlite-persistence,execution-server" --offline
 cargo check -p oris_starter_axum --offline
+cargo check -p oris_worker_tokio --offline
+cargo check -p oris_operator_cli --offline
 bash scripts/verify_cargo_generate_templates.sh
 ```
 

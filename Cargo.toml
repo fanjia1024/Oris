@@ -4,4 +4,6 @@ members = [
     "crates/oris-runtime",
     "examples/vector_store_surrealdb",
     "examples/oris_starter_axum",
+    "examples/oris_worker_tokio",
+    "examples/oris_operator_cli",
 ]

@@ -181,6 +181,16 @@ jobs:
         with:
           command: check
           args: -p oris_starter_axum --locked
+      - name: Check Tokio worker example
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p oris_worker_tokio --locked
+      - name: Check operator CLI example
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p oris_operator_cli --locked
       - name: Verify cargo-generate templates
         shell: bash
         run: |
