@@ -37,6 +37,7 @@ bash scripts/check_release_metadata.sh
 cargo clippy -p oris-runtime --lib --features "sqlite-persistence,execution-server,kernel-postgres" -- -D clippy::correctness -D clippy::suspicious -D clippy::perf
 cargo clippy -p oris_starter_axum --no-deps -- -D warnings
 cargo test --all-features
+bash scripts/run_supply_chain_checks.sh
 ```
 
 For runtime-specific work, also run:
@@ -76,6 +77,11 @@ For security-focused changes, run the dedicated regression slice:
 ```bash
 cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::security_ -- --nocapture --test-threads=1
 ```
+
+For dependency advisories and license policy changes, review the supply-chain
+baseline:
+
+- [docs/supply-chain-policy.md](docs/supply-chain-policy.md)
 
 For scheduler failover/conflict changes, the stress suite is the fast regression entrypoint:
 
