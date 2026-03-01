@@ -2375,6 +2375,7 @@ pub async fn worker_ack(
 mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::time::Instant;
 
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
@@ -4224,6 +4225,248 @@ mod tests {
         assert_eq!(second_poll_json["data"]["tenant_id"], "tenant-1");
         assert_eq!(second_poll_json["data"]["tenant_active_leases"], 1);
         assert_eq!(second_poll_json["data"]["tenant_limit"], 1);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[derive(Debug, Default)]
+    struct SchedulerStressBaseline {
+        dispatches: usize,
+        conflict_injections: usize,
+        conflicts_observed: usize,
+        failover_injections: usize,
+        failover_recoveries: usize,
+        recovery_latency_ms: Vec<f64>,
+        elapsed_seconds: f64,
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    impl SchedulerStressBaseline {
+        fn conflict_rate(&self) -> f64 {
+            if self.conflict_injections == 0 {
+                0.0
+            } else {
+                self.conflicts_observed as f64 / self.conflict_injections as f64
+            }
+        }
+
+        fn average_recovery_latency_ms(&self) -> f64 {
+            if self.recovery_latency_ms.is_empty() {
+                0.0
+            } else {
+                self.recovery_latency_ms.iter().sum::<f64>() / self.recovery_latency_ms.len() as f64
+            }
+        }
+
+        fn max_recovery_latency_ms(&self) -> f64 {
+            self.recovery_latency_ms
+                .iter()
+                .copied()
+                .fold(0.0_f64, f64::max)
+        }
+
+        fn throughput_per_sec(&self) -> f64 {
+            if self.elapsed_seconds <= f64::EPSILON {
+                self.dispatches as f64
+            } else {
+                self.dispatches as f64 / self.elapsed_seconds
+            }
+        }
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    async fn poll_worker_json(
+        router: &axum::Router,
+        worker_id: &str,
+        max_active_leases: usize,
+        tenant_max_active_leases: usize,
+    ) -> serde_json::Value {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": worker_id,
+                    "max_active_leases": max_active_leases,
+                    "tenant_max_active_leases": tenant_max_active_leases
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("poll body");
+        serde_json::from_slice(&body).expect("poll json")
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    async fn heartbeat_status(
+        router: &axum::Router,
+        worker_id: &str,
+        lease_id: &str,
+        lease_ttl_seconds: i64,
+    ) -> StatusCode {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(format!("/v1/workers/{worker_id}/heartbeat"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "lease_id": lease_id,
+                    "lease_ttl_seconds": lease_ttl_seconds
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        router.clone().oneshot(req).await.unwrap().status()
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    async fn ack_completed_status(
+        router: &axum::Router,
+        worker_id: &str,
+        attempt_id: &str,
+    ) -> StatusCode {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(format!("/v1/workers/{worker_id}/ack"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "attempt_id": attempt_id,
+                    "terminal_status": "completed"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        router.clone().oneshot(req).await.unwrap().status()
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    async fn collect_scheduler_stress_baseline(
+        iterations: usize,
+        failover_every: usize,
+    ) -> SchedulerStressBaseline {
+        let state =
+            ExecutionApiState::with_sqlite_idempotency(build_test_graph().await, ":memory:");
+        let repo = state.runtime_repo.clone().expect("runtime repo");
+        for i in 0..iterations {
+            repo.enqueue_attempt(
+                &format!("attempt-stress-{i}"),
+                &format!("run-stress-{}", i / 2),
+            )
+            .expect("enqueue stress attempt");
+            repo.set_attempt_tenant_id(
+                &format!("attempt-stress-{i}"),
+                Some(if i % 2 == 0 { "tenant-alpha" } else { "tenant-beta" }),
+            )
+            .expect("set stress tenant");
+        }
+        let router = build_router(state);
+        let started = Instant::now();
+        let mut baseline = SchedulerStressBaseline::default();
+
+        for i in 0..iterations {
+            let owner_worker_id = format!("stress-owner-{}", i % 4);
+            let poll_json = poll_worker_json(&router, &owner_worker_id, 8, 2).await;
+            assert_eq!(poll_json["data"]["decision"], "dispatched");
+            baseline.dispatches += 1;
+
+            let attempt_id = poll_json["data"]["attempt_id"]
+                .as_str()
+                .expect("stress attempt_id")
+                .to_string();
+            let lease_id = poll_json["data"]["lease_id"]
+                .as_str()
+                .expect("stress lease_id")
+                .to_string();
+
+            baseline.conflict_injections += 1;
+            let conflict_status = heartbeat_status(
+                &router,
+                &format!("stress-conflict-{i}"),
+                &lease_id,
+                5,
+            )
+            .await;
+            assert_eq!(conflict_status, StatusCode::CONFLICT);
+            baseline.conflicts_observed += 1;
+
+            if failover_every > 0 && i % failover_every == 0 {
+                baseline.failover_injections += 1;
+                repo.heartbeat_lease(
+                    &lease_id,
+                    Utc::now() - Duration::seconds(40),
+                    Utc::now() - Duration::seconds(20),
+                )
+                .expect("force expire lease");
+
+                let recovery_start = Instant::now();
+                let failover_worker_id = format!("stress-recovery-{i}");
+                let failover_json = poll_worker_json(&router, &failover_worker_id, 8, 2).await;
+                let recovery_latency_ms = recovery_start.elapsed().as_secs_f64() * 1000.0;
+
+                assert_eq!(failover_json["data"]["decision"], "dispatched");
+                assert_eq!(failover_json["data"]["attempt_id"], attempt_id);
+                assert_ne!(failover_json["data"]["lease_id"], lease_id);
+
+                baseline.dispatches += 1;
+                baseline.failover_recoveries += 1;
+                baseline.recovery_latency_ms.push(recovery_latency_ms);
+
+                let ack_status =
+                    ack_completed_status(&router, &failover_worker_id, &attempt_id).await;
+                assert_eq!(ack_status, StatusCode::OK);
+            } else {
+                let ack_status = ack_completed_status(&router, &owner_worker_id, &attempt_id).await;
+                assert_eq!(ack_status, StatusCode::OK);
+            }
+        }
+
+        baseline.elapsed_seconds = started.elapsed().as_secs_f64();
+        baseline
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn scheduler_stress_conflict_injection_detects_ownership_mismatches() {
+        let baseline = collect_scheduler_stress_baseline(12, 4).await;
+
+        assert_eq!(baseline.conflicts_observed, baseline.conflict_injections);
+        assert!(baseline.conflict_rate() >= 0.99);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn scheduler_stress_failover_recovers_after_forced_expiry() {
+        let baseline = collect_scheduler_stress_baseline(12, 3).await;
+
+        assert_eq!(baseline.failover_recoveries, baseline.failover_injections);
+        assert!(baseline.average_recovery_latency_ms() >= 0.0);
+        assert!(baseline.max_recovery_latency_ms() < 100.0);
+    }
+
+    #[cfg(feature = "sqlite-persistence")]
+    #[tokio::test]
+    async fn scheduler_stress_baseline_report_captures_conflict_latency_and_throughput() {
+        let baseline = collect_scheduler_stress_baseline(24, 3).await;
+
+        eprintln!(
+            "scheduler_stress_baseline conflict_rate={:.2}% avg_recovery_latency_ms={:.3} max_recovery_latency_ms={:.3} throughput_ops_per_sec={:.2} dispatches={} failovers={}/{}",
+            baseline.conflict_rate() * 100.0,
+            baseline.average_recovery_latency_ms(),
+            baseline.max_recovery_latency_ms(),
+            baseline.throughput_per_sec(),
+            baseline.dispatches,
+            baseline.failover_recoveries,
+            baseline.failover_injections,
+        );
+
+        assert!(baseline.conflict_rate() >= 0.99);
+        assert_eq!(baseline.failover_recoveries, baseline.failover_injections);
+        assert!(baseline.throughput_per_sec() > 1.0);
     }
 
     #[cfg(feature = "sqlite-persistence")]

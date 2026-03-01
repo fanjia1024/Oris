@@ -44,6 +44,7 @@ cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kern
 cargo test -p oris-runtime --features "sqlite-persistence,kernel-postgres" kernel::runtime::postgres_runtime_repository::tests:: -- --nocapture --test-threads=1
 cargo test -p oris-runtime --features "sqlite-persistence" kernel::runtime::sqlite_runtime_repository::tests::schema_migration -- --nocapture --test-threads=1
 cargo test -p oris-runtime --features "sqlite-persistence,kernel-postgres" kernel::runtime::backend_config::tests:: -- --nocapture --test-threads=1
+./scripts/run_scheduler_stress_suite.sh
 ```
 
 To execute the PostgreSQL branch of the runtime repository contract tests, set:
@@ -61,6 +62,16 @@ For security-focused changes, run the dedicated regression slice:
 ```bash
 cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::security_ -- --nocapture --test-threads=1
 ```
+
+For scheduler failover/conflict changes, the stress suite is the fast regression entrypoint:
+
+```bash
+./scripts/run_scheduler_stress_suite.sh
+```
+
+Baseline output reference:
+
+- [docs/scheduler-stress-baseline.md](docs/scheduler-stress-baseline.md)
 
 ## Pull request expectations
 

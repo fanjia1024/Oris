@@ -279,6 +279,7 @@ Common environment variables:
 - [Oris v1 OS architecture (single-tenant)](docs/oris-v1-os-architecture.md)
 - [Rust ecosystem integration guide](docs/rust-ecosystem-integration.md)
 - [Runtime schema migration workflow](docs/runtime-schema-migrations.md)
+- [Scheduler stress baseline](docs/scheduler-stress-baseline.md)
 - [PostgreSQL backup and restore runbook](docs/postgres-backup-restore-runbook.md)
 - [Open source onboarding guide (ZH)](docs/open-source-onboarding-zh.md)
 

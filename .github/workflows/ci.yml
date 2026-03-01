@@ -96,6 +96,11 @@ jobs:
         with:
           command: test
           args: -p oris-runtime --features "sqlite-persistence,kernel-postgres" kernel::runtime::backend_config::tests:: -- --nocapture --test-threads=1
+      - name: Run scheduler stress regression suite
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::scheduler_stress_ -- --nocapture --test-threads=1
 
   security:
     runs-on: ubuntu-latest
