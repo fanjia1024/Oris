@@ -1,0 +1,33 @@
+groups:
+  - name: oris-runtime-observability
+    interval: 30s
+    rules:
+      - alert: OrisRuntimeHighErrorRate
+        expr: oris_runtime_terminal_error_rate > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: oris-runtime
+        annotations:
+          summary: Oris runtime terminal error rate is elevated
+          description: Terminal failed/cancelled acknowledgements have exceeded 5% for 10 minutes.
+
+      - alert: OrisRuntimeHighRecoveryLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(oris_runtime_recovery_latency_ms_bucket[10m]))) > 250
+        for: 10m
+        labels:
+          severity: warning
+          service: oris-runtime
+        annotations:
+          summary: Oris runtime failover recovery latency is elevated
+          description: Recovery latency p95 has stayed above 250ms for 10 minutes.
+
+      - alert: OrisRuntimeSustainedBackpressure
+        expr: sum(increase(oris_runtime_backpressure_total[10m])) > 25 and max_over_time(oris_runtime_queue_depth[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: oris-runtime
+        annotations:
+          summary: Oris runtime is under sustained backpressure
+          description: Backpressure decisions kept increasing while the queue remained non-empty for 10 minutes.

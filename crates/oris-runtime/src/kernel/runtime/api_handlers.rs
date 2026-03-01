@@ -113,6 +113,11 @@ pub struct RuntimeMetrics {
 struct RuntimeMetricsInner {
     lease_operations_total: u64,
     lease_conflicts_total: u64,
+    backpressure_worker_limit_total: u64,
+    backpressure_tenant_limit_total: u64,
+    terminal_acks_completed_total: u64,
+    terminal_acks_failed_total: u64,
+    terminal_acks_cancelled_total: u64,
     dispatch_latency_ms_sum: f64,
     dispatch_latency_ms_count: u64,
     dispatch_latency_ms_buckets: [u64; METRIC_BUCKETS_MS.len()],
@@ -125,6 +130,11 @@ struct RuntimeMetricsInner {
 struct RuntimeMetricsSnapshot {
     lease_operations_total: u64,
     lease_conflicts_total: u64,
+    backpressure_worker_limit_total: u64,
+    backpressure_tenant_limit_total: u64,
+    terminal_acks_completed_total: u64,
+    terminal_acks_failed_total: u64,
+    terminal_acks_cancelled_total: u64,
     dispatch_latency_ms_sum: f64,
     dispatch_latency_ms_count: u64,
     dispatch_latency_ms_buckets: [u64; METRIC_BUCKETS_MS.len()],
@@ -139,6 +149,11 @@ impl Default for RuntimeMetrics {
             inner: Arc::new(Mutex::new(RuntimeMetricsInner {
                 lease_operations_total: 0,
                 lease_conflicts_total: 0,
+                backpressure_worker_limit_total: 0,
+                backpressure_tenant_limit_total: 0,
+                terminal_acks_completed_total: 0,
+                terminal_acks_failed_total: 0,
+                terminal_acks_cancelled_total: 0,
                 dispatch_latency_ms_sum: 0.0,
                 dispatch_latency_ms_count: 0,
                 dispatch_latency_ms_buckets: [0; METRIC_BUCKETS_MS.len()],
@@ -163,6 +178,27 @@ impl RuntimeMetrics {
         }
     }
 
+    fn record_backpressure(&self, reason: &str) {
+        if let Ok(mut inner) = self.inner.lock() {
+            match reason {
+                "worker_limit" => inner.backpressure_worker_limit_total += 1,
+                "tenant_limit" => inner.backpressure_tenant_limit_total += 1,
+                _ => {}
+            }
+        }
+    }
+
+    fn record_terminal_ack(&self, status: &AttemptExecutionStatus) {
+        if let Ok(mut inner) = self.inner.lock() {
+            match status {
+                AttemptExecutionStatus::Completed => inner.terminal_acks_completed_total += 1,
+                AttemptExecutionStatus::Failed => inner.terminal_acks_failed_total += 1,
+                AttemptExecutionStatus::Cancelled => inner.terminal_acks_cancelled_total += 1,
+                _ => {}
+            }
+        }
+    }
+
     fn record_dispatch_latency_ms(&self, latency_ms: f64) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.dispatch_latency_ms_sum += latency_ms;
@@ -184,6 +220,11 @@ impl RuntimeMetrics {
             RuntimeMetricsSnapshot {
                 lease_operations_total: inner.lease_operations_total,
                 lease_conflicts_total: inner.lease_conflicts_total,
+                backpressure_worker_limit_total: inner.backpressure_worker_limit_total,
+                backpressure_tenant_limit_total: inner.backpressure_tenant_limit_total,
+                terminal_acks_completed_total: inner.terminal_acks_completed_total,
+                terminal_acks_failed_total: inner.terminal_acks_failed_total,
+                terminal_acks_cancelled_total: inner.terminal_acks_cancelled_total,
                 dispatch_latency_ms_sum: inner.dispatch_latency_ms_sum,
                 dispatch_latency_ms_count: inner.dispatch_latency_ms_count,
                 dispatch_latency_ms_buckets: inner.dispatch_latency_ms_buckets,
@@ -195,6 +236,11 @@ impl RuntimeMetrics {
             RuntimeMetricsSnapshot {
                 lease_operations_total: 0,
                 lease_conflicts_total: 0,
+                backpressure_worker_limit_total: 0,
+                backpressure_tenant_limit_total: 0,
+                terminal_acks_completed_total: 0,
+                terminal_acks_failed_total: 0,
+                terminal_acks_cancelled_total: 0,
                 dispatch_latency_ms_sum: 0.0,
                 dispatch_latency_ms_count: 0,
                 dispatch_latency_ms_buckets: [0; METRIC_BUCKETS_MS.len()],
@@ -211,6 +257,15 @@ impl RuntimeMetrics {
             0.0
         } else {
             snapshot.lease_conflicts_total as f64 / snapshot.lease_operations_total as f64
+        };
+        let terminal_acks_total = snapshot.terminal_acks_completed_total
+            + snapshot.terminal_acks_failed_total
+            + snapshot.terminal_acks_cancelled_total;
+        let terminal_error_rate = if terminal_acks_total == 0 {
+            0.0
+        } else {
+            (snapshot.terminal_acks_failed_total + snapshot.terminal_acks_cancelled_total) as f64
+                / terminal_acks_total as f64
         };
 
         let mut out = String::new();
@@ -232,6 +287,36 @@ impl RuntimeMetrics {
         out.push_str("# HELP oris_runtime_lease_conflict_rate Lease conflicts divided by lease operations.\n");
         out.push_str("# TYPE oris_runtime_lease_conflict_rate gauge\n");
         out.push_str(&format!("oris_runtime_lease_conflict_rate {:.6}\n", conflict_rate));
+        out.push_str("# HELP oris_runtime_backpressure_total Total worker poll backpressure decisions by reason.\n");
+        out.push_str("# TYPE oris_runtime_backpressure_total counter\n");
+        out.push_str(&format!(
+            "oris_runtime_backpressure_total{{reason=\"worker_limit\"}} {}\n",
+            snapshot.backpressure_worker_limit_total
+        ));
+        out.push_str(&format!(
+            "oris_runtime_backpressure_total{{reason=\"tenant_limit\"}} {}\n",
+            snapshot.backpressure_tenant_limit_total
+        ));
+        out.push_str("# HELP oris_runtime_terminal_acks_total Total terminal worker acknowledgements by status.\n");
+        out.push_str("# TYPE oris_runtime_terminal_acks_total counter\n");
+        out.push_str(&format!(
+            "oris_runtime_terminal_acks_total{{status=\"completed\"}} {}\n",
+            snapshot.terminal_acks_completed_total
+        ));
+        out.push_str(&format!(
+            "oris_runtime_terminal_acks_total{{status=\"failed\"}} {}\n",
+            snapshot.terminal_acks_failed_total
+        ));
+        out.push_str(&format!(
+            "oris_runtime_terminal_acks_total{{status=\"cancelled\"}} {}\n",
+            snapshot.terminal_acks_cancelled_total
+        ));
+        out.push_str("# HELP oris_runtime_terminal_error_rate Terminal failed/cancelled acknowledgements divided by all terminal acknowledgements.\n");
+        out.push_str("# TYPE oris_runtime_terminal_error_rate gauge\n");
+        out.push_str(&format!(
+            "oris_runtime_terminal_error_rate {:.6}\n",
+            terminal_error_rate
+        ));
         render_histogram(
             &mut out,
             "oris_runtime_dispatch_latency_ms",
@@ -2445,6 +2530,7 @@ pub async fn worker_poll(
             .active_leases_for_worker(&req.worker_id, now)
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
         if active >= max_active {
+            state.runtime_metrics.record_backpressure("worker_limit");
             return Ok(Json(ApiEnvelope {
                 meta: ApiMeta::ok(),
                 request_id: rid,
@@ -2539,6 +2625,7 @@ pub async fn worker_poll(
         }
 
         if let Some((tenant_id, tenant_active)) = tenant_block {
+            state.runtime_metrics.record_backpressure("tenant_limit");
             return Ok(Json(ApiEnvelope {
                 meta: ApiMeta::ok(),
                 request_id: rid,
@@ -2777,6 +2864,7 @@ pub async fn worker_ack(
         let outcome = repo
             .ack_attempt(&req.attempt_id, status, retry_policy.as_ref(), Utc::now())
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?;
+        state.runtime_metrics.record_terminal_ack(&outcome.status);
         let trace = repo
             .advance_attempt_trace(&req.attempt_id, &generate_span_id())
             .map_err(|e| ApiError::internal(e.to_string()).with_request_id(rid.clone()))?
@@ -4293,10 +4381,37 @@ mod tests {
             .await
             .expect("metrics poll body");
         let poll_json: serde_json::Value = serde_json::from_slice(&poll_body).expect("metrics poll json");
+        let attempt_id = poll_json["data"]["attempt_id"]
+            .as_str()
+            .expect("metrics attempt")
+            .to_string();
         let lease_id = poll_json["data"]["lease_id"]
             .as_str()
             .expect("metrics lease")
             .to_string();
+
+        let backpressure_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/poll")
+            .header("content-type", "application/json")
+            .header("x-api-key", "metrics-key")
+            .body(Body::from(
+                serde_json::json!({
+                    "worker_id": "metrics-worker-1",
+                    "max_active_leases": 1
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let backpressure_resp = router.clone().oneshot(backpressure_req).await.unwrap();
+        assert_eq!(backpressure_resp.status(), StatusCode::OK);
+        let backpressure_body = axum::body::to_bytes(backpressure_resp.into_body(), usize::MAX)
+            .await
+            .expect("backpressure body");
+        let backpressure_json: serde_json::Value =
+            serde_json::from_slice(&backpressure_body).expect("backpressure json");
+        assert_eq!(backpressure_json["data"]["decision"], "backpressure");
+        assert_eq!(backpressure_json["data"]["reason"], "worker_limit");
 
         let wrong_hb_req = Request::builder()
             .method(Method::POST)
@@ -4335,6 +4450,28 @@ mod tests {
             .unwrap();
         let recovery_poll_resp = router.clone().oneshot(recovery_poll_req).await.unwrap();
         assert_eq!(recovery_poll_resp.status(), StatusCode::OK);
+        let recovery_poll_body = axum::body::to_bytes(recovery_poll_resp.into_body(), usize::MAX)
+            .await
+            .expect("recovery poll body");
+        let recovery_poll_json: serde_json::Value =
+            serde_json::from_slice(&recovery_poll_body).expect("recovery poll json");
+        assert_eq!(recovery_poll_json["data"]["decision"], "dispatched");
+
+        let failed_ack_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/workers/metrics-worker-2/ack")
+            .header("content-type", "application/json")
+            .header("x-api-key", "metrics-key")
+            .body(Body::from(
+                serde_json::json!({
+                    "attempt_id": attempt_id,
+                    "terminal_status": "failed"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let failed_ack_resp = router.clone().oneshot(failed_ack_req).await.unwrap();
+        assert_eq!(failed_ack_resp.status(), StatusCode::OK);
 
         let metrics_req = Request::builder()
             .method(Method::GET)
@@ -4360,8 +4497,55 @@ mod tests {
         assert!(metrics_text.contains("oris_runtime_lease_operations_total 3"));
         assert!(metrics_text.contains("oris_runtime_lease_conflicts_total 1"));
         assert!(metrics_text.contains("oris_runtime_lease_conflict_rate 0.333333"));
+        assert!(metrics_text.contains("oris_runtime_backpressure_total{reason=\"worker_limit\"} 1"));
+        assert!(metrics_text.contains("oris_runtime_backpressure_total{reason=\"tenant_limit\"} 0"));
+        assert!(metrics_text.contains("oris_runtime_terminal_acks_total{status=\"failed\"} 1"));
+        assert!(metrics_text.contains("oris_runtime_terminal_error_rate 1.000000"));
         assert!(metrics_text.contains("oris_runtime_dispatch_latency_ms_count 2"));
         assert!(metrics_text.contains("oris_runtime_recovery_latency_ms_count 1"));
+    }
+
+    #[test]
+    fn observability_assets_reference_metrics_present_in_sample_workload() {
+        let dashboard = include_str!("../../../../../docs/observability/runtime-dashboard.json");
+        let alerts = include_str!("../../../../../docs/observability/prometheus-alert-rules.yml");
+        let sample = include_str!("../../../../../docs/observability/sample-runtime-workload.prom");
+
+        let required_metrics = [
+            "oris_runtime_queue_depth",
+            "oris_runtime_backpressure_total",
+            "oris_runtime_dispatch_latency_ms_bucket",
+            "oris_runtime_recovery_latency_ms_bucket",
+            "oris_runtime_terminal_error_rate",
+            "oris_runtime_lease_conflict_rate",
+        ];
+
+        for metric in required_metrics {
+            assert!(
+                sample.contains(metric),
+                "sample workload is missing metric {}",
+                metric
+            );
+            assert!(
+                dashboard.contains(metric),
+                "dashboard is missing metric {}",
+                metric
+            );
+        }
+
+        let alert_metrics = [
+            "oris_runtime_terminal_error_rate",
+            "oris_runtime_recovery_latency_ms_bucket",
+            "oris_runtime_backpressure_total",
+            "oris_runtime_queue_depth",
+        ];
+        for metric in alert_metrics {
+            assert!(
+                alerts.contains(metric),
+                "alert rules are missing metric {}",
+                metric
+            );
+        }
     }
 
     #[cfg(feature = "sqlite-persistence")]

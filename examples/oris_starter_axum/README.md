@@ -75,4 +75,5 @@ curl -s http://127.0.0.1:8080/metrics
 See also:
 
 - `docs/rust-ecosystem-integration.md`
+- `docs/observability/README.md`
 - `crates/oris-runtime/examples/`

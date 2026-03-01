@@ -282,6 +282,7 @@ Common environment variables:
 - [Scheduler stress baseline](docs/scheduler-stress-baseline.md)
 - [PostgreSQL backup and restore runbook](docs/postgres-backup-restore-runbook.md)
 - [Open source onboarding guide (ZH)](docs/open-source-onboarding-zh.md)
+- [Observability assets (Grafana + alerts)](docs/observability/)
 
 Start the execution server:
 
@@ -372,7 +373,16 @@ Prometheus metrics contract:
 - `oris_runtime_dispatch_latency_ms` — dispatch latency histogram
 - `oris_runtime_lease_operations_total` / `oris_runtime_lease_conflicts_total` — lease operation and conflict counters
 - `oris_runtime_lease_conflict_rate` — derived conflict-rate gauge
+- `oris_runtime_backpressure_total{reason="worker_limit|tenant_limit"}` — backpressure counter by cause
+- `oris_runtime_terminal_acks_total{status="completed|failed|cancelled"}` — terminal worker ack counters
+- `oris_runtime_terminal_error_rate` — derived terminal error-rate gauge
 - `oris_runtime_recovery_latency_ms` — failover recovery latency histogram
+
+Prebuilt observability assets:
+
+- Grafana dashboard: `docs/observability/runtime-dashboard.json`
+- Prometheus alert rules: `docs/observability/prometheus-alert-rules.yml`
+- Sample validation scrape: `docs/observability/sample-runtime-workload.prom`
 
 Execution API error contract:
 

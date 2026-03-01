@@ -47,6 +47,7 @@ cargo test -p oris-runtime --features "sqlite-persistence,kernel-postgres" kerne
 ./scripts/run_scheduler_stress_suite.sh
 cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::run_to_worker_flow_propagates_trace_context_end_to_end -- --nocapture --test-threads=1
 cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::metrics_endpoint_is_scrape_ready_and_exposes_runtime_metrics -- --nocapture --test-threads=1
+cargo test -p oris-runtime --features "sqlite-persistence,execution-server" kernel::runtime::api_handlers::tests::observability_assets_reference_metrics_present_in_sample_workload -- --nocapture --test-threads=1
 ```
 
 To execute the PostgreSQL branch of the runtime repository contract tests, set:
