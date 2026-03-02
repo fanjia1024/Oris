@@ -9,6 +9,34 @@ use super::repository::RuntimeRepository;
 
 const DISPATCH_SCAN_LIMIT: usize = 16;
 
+/// Context for context-aware dispatch (tenant, priority, plugin/worker capabilities).
+/// Used to route or filter work; concrete routing logic can be extended later.
+#[derive(Clone, Debug, Default)]
+pub struct DispatchContext {
+    pub tenant_id: Option<String>,
+    pub priority: Option<u32>,
+    /// Plugin type names required for this dispatch (e.g. node kinds).
+    pub plugin_requirements: Option<Vec<String>>,
+    /// Worker capability tags the scheduler may match against.
+    pub worker_capabilities: Option<Vec<String>>,
+}
+
+impl DispatchContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_tenant(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    pub fn with_priority(mut self, priority: u32) -> Self {
+        self.priority = Some(priority);
+        self
+    }
+}
+
 /// Scheduler dispatch decision.
 #[derive(Clone, Debug)]
 pub enum SchedulerDecision {
@@ -31,10 +59,25 @@ impl<R: RuntimeRepository> SkeletonScheduler<R> {
 
     /// Attempt to dispatch one eligible attempt to `worker_id`.
     pub fn dispatch_one(&self, worker_id: &str) -> Result<SchedulerDecision, KernelError> {
+        self.dispatch_one_with_context(worker_id, None)
+    }
+
+    /// Dispatch one attempt to `worker_id` with optional context for tenant/priority/capability routing.
+    /// Context is passed through for future filtering or sorting; current implementation
+    /// uses the same candidate list as `dispatch_one`.
+    pub fn dispatch_one_with_context(
+        &self,
+        worker_id: &str,
+        context: Option<&DispatchContext>,
+    ) -> Result<SchedulerDecision, KernelError> {
         let now = Utc::now();
         let candidates: Vec<AttemptDispatchRecord> = self
             .repository
             .list_dispatchable_attempts(now, DISPATCH_SCAN_LIMIT)?;
+        // Optional: apply context-based sort (e.g. by priority when available on attempts).
+        if context.as_ref().and_then(|c| c.priority).is_some() {
+            // Placeholder: could sort by attempt priority when AttemptDispatchRecord carries it.
+        }
         let lease_expires_at = now + chrono::Duration::seconds(30);
 
         for candidate in candidates {
@@ -201,5 +244,35 @@ mod tests {
             .expect("conflicts should not surface as hard errors");
 
         assert!(matches!(decision, SchedulerDecision::Noop));
+    }
+
+    #[test]
+    fn dispatch_one_with_context_none_same_as_dispatch_one() {
+        let repo = FakeRepository::new(vec![attempt("attempt-a", 1)], &[]);
+        let scheduler = SkeletonScheduler::new(repo.clone());
+
+        let with_ctx = scheduler
+            .dispatch_one_with_context("worker-1", None)
+            .expect("dispatch should succeed");
+        let without = scheduler
+            .dispatch_one("worker-1")
+            .expect("dispatch should succeed");
+
+        match (&with_ctx, &without) {
+            (
+                SchedulerDecision::Dispatched { attempt_id: a1, .. },
+                SchedulerDecision::Dispatched { attempt_id: a2, .. },
+            ) => assert_eq!(a1, a2),
+            _ => panic!("expected both dispatched"),
+        }
+    }
+
+    #[test]
+    fn dispatch_context_builder() {
+        let ctx = DispatchContext::new()
+            .with_tenant("tenant-1")
+            .with_priority(5);
+        assert_eq!(ctx.tenant_id.as_deref(), Some("tenant-1"));
+        assert_eq!(ctx.priority, Some(5));
     }
 }

@@ -19,8 +19,10 @@ pub mod backend_config;
 pub mod benchmark_suite;
 pub mod lease;
 pub mod models;
+pub mod observability;
 #[cfg(feature = "kernel-postgres")]
 pub mod postgres_runtime_repository;
+pub mod recovery;
 pub mod repository;
 pub mod scheduler;
 #[cfg(feature = "sqlite-persistence")]
@@ -59,14 +61,16 @@ pub use benchmark_suite::{
     RuntimeBenchmarkEnvironment, RuntimeBenchmarkMetric, RuntimeBenchmarkSuiteReport,
     RUNTIME_BENCHMARK_BASELINE_DOC_PATH,
 };
-pub use lease::{LeaseConfig, LeaseManager, LeaseTickResult, RepositoryLeaseManager};
+pub use lease::{LeaseConfig, LeaseManager, LeaseTickResult, RepositoryLeaseManager, WorkerLease};
 pub use models::{
     AttemptDispatchRecord, AttemptExecutionStatus, InterruptRecord, LeaseRecord, RunRecord,
     RunRuntimeStatus,
 };
+pub use observability::{KernelObservability, RejectionReason};
 #[cfg(feature = "kernel-postgres")]
 pub use postgres_runtime_repository::PostgresRuntimeRepository;
+pub use recovery::{CrashRecoveryPipeline, RecoveryContext, RecoveryStep};
 pub use repository::RuntimeRepository;
-pub use scheduler::{SchedulerDecision, SkeletonScheduler};
+pub use scheduler::{DispatchContext, SchedulerDecision, SkeletonScheduler};
 #[cfg(feature = "sqlite-persistence")]
 pub use sqlite_runtime_repository::SqliteRuntimeRepository;

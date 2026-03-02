@@ -1,10 +1,78 @@
-//! Lease management skeleton for Phase 1.
+//! Lease management for Phase 1: single-owner execution, expiry, and recovery.
+//!
+//! [WorkerLease] wraps [super::models::LeaseRecord] to strictly enforce single-owner
+//! execution: call [WorkerLease::verify_owner] and [WorkerLease::is_expired] before
+//! running work. Lease expiry and recovery are handled by [LeaseManager::tick]
+//! (expire stale leases, requeue attempts); replay-restart is re-dispatch after requeue.
 
 use chrono::{DateTime, Duration, Utc};
 
 use crate::kernel::event::KernelError;
 
+use super::models::LeaseRecord;
 use super::repository::RuntimeRepository;
+
+/// Strict single-owner execution guard for a lease. Verify ownership and expiry before executing.
+#[derive(Clone, Debug)]
+pub struct WorkerLease {
+    record: LeaseRecord,
+}
+
+impl WorkerLease {
+    /// Build a worker lease from a repository lease record (e.g. from `get_lease_for_attempt`).
+    pub fn from_record(record: LeaseRecord) -> Self {
+        Self { record }
+    }
+
+    /// Lease record for heartbeat or persistence.
+    pub fn record(&self) -> &LeaseRecord {
+        &self.record
+    }
+
+    pub fn lease_id(&self) -> &str {
+        &self.record.lease_id
+    }
+
+    pub fn attempt_id(&self) -> &str {
+        &self.record.attempt_id
+    }
+
+    pub fn worker_id(&self) -> &str {
+        &self.record.worker_id
+    }
+
+    /// Returns true if the lease has passed its expiry time (no heartbeat grace here).
+    pub fn is_expired(&self, now: DateTime<Utc>) -> bool {
+        now >= self.record.lease_expires_at
+    }
+
+    /// Enforce single-owner: returns `Ok(())` only if `worker_id` matches the lease owner.
+    pub fn verify_owner(&self, worker_id: &str) -> Result<(), KernelError> {
+        if self.record.worker_id != worker_id {
+            return Err(KernelError::Driver(format!(
+                "lease {} is owned by {}, not {}",
+                self.record.lease_id, self.record.worker_id, worker_id
+            )));
+        }
+        Ok(())
+    }
+
+    /// Returns `Ok(())` if the given worker owns the lease and it is not yet expired.
+    pub fn check_execution_allowed(
+        &self,
+        worker_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), KernelError> {
+        self.verify_owner(worker_id)?;
+        if self.is_expired(now) {
+            return Err(KernelError::Driver(format!(
+                "lease {} expired at {}",
+                self.record.lease_id, self.record.lease_expires_at
+            )));
+        }
+        Ok(())
+    }
+}
 
 /// Lease behavior tuning knobs for scheduler/data-plane coordination.
 #[derive(Clone, Debug)]
@@ -133,6 +201,56 @@ mod tests {
         fn latest_seq_for_run(&self, _run_id: &RunId) -> Result<Seq, KernelError> {
             Ok(0)
         }
+    }
+
+    #[test]
+    fn worker_lease_verify_owner_accepts_owner() {
+        let record = LeaseRecord {
+            lease_id: "L1".to_string(),
+            attempt_id: "A1".to_string(),
+            worker_id: "W1".to_string(),
+            lease_expires_at: Utc::now() + Duration::seconds(60),
+            heartbeat_at: Utc::now(),
+            version: 1,
+        };
+        let lease = WorkerLease::from_record(record);
+        assert!(lease.verify_owner("W1").is_ok());
+        assert!(lease.verify_owner("W2").is_err());
+    }
+
+    #[test]
+    fn worker_lease_is_expired() {
+        let now = Utc::now();
+        let record = LeaseRecord {
+            lease_id: "L1".to_string(),
+            attempt_id: "A1".to_string(),
+            worker_id: "W1".to_string(),
+            lease_expires_at: now - Duration::seconds(1),
+            heartbeat_at: now - Duration::seconds(2),
+            version: 1,
+        };
+        let lease = WorkerLease::from_record(record);
+        assert!(lease.is_expired(now));
+        assert!(!lease.is_expired(now - Duration::seconds(2)));
+    }
+
+    #[test]
+    fn worker_lease_check_execution_allowed() {
+        let now = Utc::now();
+        let record = LeaseRecord {
+            lease_id: "L1".to_string(),
+            attempt_id: "A1".to_string(),
+            worker_id: "W1".to_string(),
+            lease_expires_at: now + Duration::seconds(10),
+            heartbeat_at: now,
+            version: 1,
+        };
+        let lease = WorkerLease::from_record(record);
+        assert!(lease.check_execution_allowed("W1", now).is_ok());
+        assert!(lease.check_execution_allowed("W2", now).is_err());
+        assert!(lease
+            .check_execution_allowed("W1", now + Duration::seconds(11))
+            .is_err());
     }
 
     #[test]
