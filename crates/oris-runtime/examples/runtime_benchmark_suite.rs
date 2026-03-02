@@ -3,7 +3,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use oris_runtime::kernel::{
+use oris_runtime::execution_server::{
     canonical_runtime_benchmark_baseline_path, write_runtime_benchmark_suite,
     RUNTIME_BENCHMARK_BASELINE_DOC_PATH,
 };

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.notion.so)",
+      "WebFetch(domain:developers.notion.com)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view 63 --json title,body,labels)",
+      "Bash(gh issue view:*)"
+    ]
+  }
+}

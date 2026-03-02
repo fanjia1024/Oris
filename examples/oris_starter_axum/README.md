@@ -2,6 +2,11 @@
 
 This is a starter service project that shows how to use Oris as part of a Rust web backend.
 
+Dependency split:
+
+- `oris-runtime` for graph compilation, persistence, and runtime storage config
+- `oris-execution-server` for the graph-aware HTTP server surface (`build_router`, `ExecutionApiState`)
+
 ## What this example demonstrates
 
 - Running Oris runtime inside an Axum HTTP service.

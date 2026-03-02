@@ -1,0 +1,30 @@
+[package]
+name = "oris-execution-server"
+version = "0.2.12"
+edition = "2021"
+rust-version = "1.80"
+publish = true
+repository = "https://github.com/Colin4k1024/Oris"
+license = "MIT"
+description = "Graph-aware HTTP execution server facade for Oris."
+keywords = ["agent", "workflow", "runtime", "http", "server"]
+categories = ["development-tools", "asynchronous", "web-programming"]
+readme = "../../README.md"
+homepage = "https://github.com/Colin4k1024/Oris"
+documentation = "https://docs.rs/oris-execution-server"
+authors = ["Jiafan"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+oris-runtime = { path = "../oris-runtime", default-features = false }
+
+[features]
+default = []
+execution-server = ["oris-runtime/execution-server"]
+sqlite-persistence = ["execution-server", "oris-runtime/sqlite-persistence"]
+kernel-postgres = ["oris-runtime/kernel-postgres"]
+evolution-network-experimental = ["oris-runtime/evolution-network-experimental"]
+full-evolution-experimental = ["oris-runtime/full-evolution-experimental"]

@@ -423,13 +423,89 @@
   "schemas": {
     "ApiEnvelope_AttemptRetryHistoryResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_AttemptRetryHistoryResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      "definitions": {
+        "ApiMeta": {
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
+        },
+        "AttemptRetryHistoryItem": {
+          "properties": {
+            "attempt_no": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "backoff_ms": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "max_retries": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "retry_no": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "scheduled_at": {
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "attempt_no",
+            "backoff_ms",
+            "max_retries",
+            "retry_no",
+            "scheduled_at",
+            "strategy"
+          ],
+          "type": "object"
+        },
+        "AttemptRetryHistoryResponse": {
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "current_attempt_no": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "current_status": {
+              "type": "string"
+            },
+            "history": {
+              "items": {
+                "$ref": "#/definitions/AttemptRetryHistoryItem"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "attempt_id",
+            "current_attempt_no",
+            "current_status",
+            "history"
+          ],
+          "type": "object"
+        }
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/AttemptRetryHistoryResponse"
@@ -441,117 +517,18 @@
           "type": "string"
         }
       },
-      "definitions": {
-        "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
-          "properties": {
-            "api_version": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            }
-          }
-        },
-        "AttemptRetryHistoryItem": {
-          "type": "object",
-          "required": [
-            "attempt_no",
-            "backoff_ms",
-            "max_retries",
-            "retry_no",
-            "scheduled_at",
-            "strategy"
-          ],
-          "properties": {
-            "attempt_no": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "backoff_ms": {
-              "type": "integer",
-              "format": "int64"
-            },
-            "max_retries": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "retry_no": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "scheduled_at": {
-              "type": "string"
-            },
-            "strategy": {
-              "type": "string"
-            }
-          }
-        },
-        "AttemptRetryHistoryResponse": {
-          "type": "object",
-          "required": [
-            "attempt_id",
-            "current_attempt_no",
-            "current_status",
-            "history"
-          ],
-          "properties": {
-            "attempt_id": {
-              "type": "string"
-            },
-            "current_attempt_no": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "current_status": {
-              "type": "string"
-            },
-            "history": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/AttemptRetryHistoryItem"
-              }
-            }
-          }
-        }
-      }
-    },
-    "ApiEnvelope_AuditLogListResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_AuditLogListResponse",
-      "type": "object",
       "required": [
         "data",
         "meta",
         "request_id"
       ],
-      "properties": {
-        "data": {
-          "$ref": "#/definitions/AuditLogListResponse"
-        },
-        "meta": {
-          "$ref": "#/definitions/ApiMeta"
-        },
-        "request_id": {
-          "type": "string"
-        }
-      },
+      "title": "ApiEnvelope_for_AttemptRetryHistoryResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_AuditLogListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -559,19 +536,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "AuditLogItem": {
-          "type": "object",
-          "required": [
-            "action",
-            "actor_type",
-            "audit_id",
-            "created_at",
-            "request_id",
-            "resource_type",
-            "result"
-          ],
           "properties": {
             "action": {
               "type": "string"
@@ -592,8 +564,8 @@
               "type": "string"
             },
             "audit_id": {
-              "type": "integer",
-              "format": "int64"
+              "format": "int64",
+              "type": "integer"
             },
             "created_at": {
               "type": "string"
@@ -614,33 +586,92 @@
             "result": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "action",
+            "actor_type",
+            "audit_id",
+            "created_at",
+            "request_id",
+            "resource_type",
+            "result"
+          ],
+          "type": "object"
         },
         "AuditLogListResponse": {
-          "type": "object",
+          "properties": {
+            "logs": {
+              "items": {
+                "$ref": "#/definitions/AuditLogItem"
+              },
+              "type": "array"
+            }
+          },
           "required": [
             "logs"
           ],
-          "properties": {
-            "logs": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/AuditLogItem"
-              }
-            }
-          }
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_CancelJobResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_CancelJobResponse",
-      "type": "object",
+      },
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/AuditLogListResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
       "required": [
         "data",
         "meta",
         "request_id"
       ],
+      "title": "ApiEnvelope_for_AuditLogListResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_CancelJobResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ApiMeta": {
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
+        },
+        "CancelJobResponse": {
+          "properties": {
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "thread_id"
+          ],
+          "type": "object"
+        }
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/CancelJobResponse"
@@ -652,72 +683,18 @@
           "type": "string"
         }
       },
-      "definitions": {
-        "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
-          "properties": {
-            "api_version": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            }
-          }
-        },
-        "CancelJobResponse": {
-          "type": "object",
-          "required": [
-            "status",
-            "thread_id"
-          ],
-          "properties": {
-            "reason": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "status": {
-              "type": "string"
-            },
-            "thread_id": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    "ApiEnvelope_CheckpointInspectResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_CheckpointInspectResponse",
-      "type": "object",
       "required": [
         "data",
         "meta",
         "request_id"
       ],
-      "properties": {
-        "data": {
-          "$ref": "#/definitions/CheckpointInspectResponse"
-        },
-        "meta": {
-          "$ref": "#/definitions/ApiMeta"
-        },
-        "request_id": {
-          "type": "string"
-        }
-      },
+      "title": "ApiEnvelope_for_CancelJobResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_CheckpointInspectResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -725,16 +702,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "CheckpointInspectResponse": {
-          "type": "object",
-          "required": [
-            "checkpoint_id",
-            "created_at",
-            "thread_id",
-            "values"
-          ],
           "properties": {
             "checkpoint_id": {
               "type": "string"
@@ -746,19 +721,105 @@
               "type": "string"
             },
             "values": true
-          }
+          },
+          "required": [
+            "checkpoint_id",
+            "created_at",
+            "thread_id",
+            "values"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_DeadLetterItem": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_DeadLetterItem",
-      "type": "object",
+      },
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/CheckpointInspectResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
       "required": [
         "data",
         "meta",
         "request_id"
       ],
+      "title": "ApiEnvelope_for_CheckpointInspectResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_DeadLetterItem": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ApiMeta": {
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
+        },
+        "DeadLetterItem": {
+          "properties": {
+            "attempt_id": {
+              "type": "string"
+            },
+            "attempt_no": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "dead_at": {
+              "type": "string"
+            },
+            "last_replayed_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "replay_count": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "replay_status": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "terminal_status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "attempt_id",
+            "attempt_no",
+            "dead_at",
+            "replay_count",
+            "replay_status",
+            "run_id",
+            "terminal_status"
+          ],
+          "type": "object"
+        }
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/DeadLetterItem"
@@ -770,13 +831,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_DeadLetterItem",
+      "type": "object"
+    },
+    "ApiEnvelope_DeadLetterListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -784,27 +850,22 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "DeadLetterItem": {
-          "type": "object",
-          "required": [
-            "attempt_id",
-            "attempt_no",
-            "dead_at",
-            "replay_count",
-            "replay_status",
-            "run_id",
-            "terminal_status"
-          ],
           "properties": {
             "attempt_id": {
               "type": "string"
             },
             "attempt_no": {
-              "type": "integer",
               "format": "uint32",
-              "minimum": 0.0
+              "minimum": 0.0,
+              "type": "integer"
             },
             "dead_at": {
               "type": "string"
@@ -822,9 +883,9 @@
               ]
             },
             "replay_count": {
-              "type": "integer",
               "format": "uint32",
-              "minimum": 0.0
+              "minimum": 0.0,
+              "type": "integer"
             },
             "replay_status": {
               "type": "string"
@@ -835,19 +896,33 @@
             "terminal_status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "attempt_id",
+            "attempt_no",
+            "dead_at",
+            "replay_count",
+            "replay_status",
+            "run_id",
+            "terminal_status"
+          ],
+          "type": "object"
+        },
+        "DeadLetterListResponse": {
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "#/definitions/DeadLetterItem"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "entries"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_DeadLetterListResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_DeadLetterListResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/DeadLetterListResponse"
@@ -859,13 +934,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_DeadLetterListResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_DeadLetterReplayResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -873,84 +953,35 @@
             "status": {
               "type": "string"
             }
-          }
-        },
-        "DeadLetterItem": {
-          "type": "object",
+          },
           "required": [
-            "attempt_id",
-            "attempt_no",
-            "dead_at",
-            "replay_count",
-            "replay_status",
-            "run_id",
-            "terminal_status"
+            "api_version",
+            "status"
           ],
+          "type": "object"
+        },
+        "DeadLetterReplayResponse": {
           "properties": {
             "attempt_id": {
               "type": "string"
             },
-            "attempt_no": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "dead_at": {
-              "type": "string"
-            },
-            "last_replayed_at": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "reason": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
             "replay_count": {
-              "type": "integer",
               "format": "uint32",
-              "minimum": 0.0
+              "minimum": 0.0,
+              "type": "integer"
             },
-            "replay_status": {
-              "type": "string"
-            },
-            "run_id": {
-              "type": "string"
-            },
-            "terminal_status": {
+            "status": {
               "type": "string"
             }
-          }
-        },
-        "DeadLetterListResponse": {
-          "type": "object",
+          },
           "required": [
-            "entries"
+            "attempt_id",
+            "replay_count",
+            "status"
           ],
-          "properties": {
-            "entries": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/DeadLetterItem"
-              }
-            }
-          }
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_DeadLetterReplayResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_DeadLetterReplayResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/DeadLetterReplayResponse"
@@ -962,13 +993,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_DeadLetterReplayResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_InterruptDetailResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -976,40 +1012,47 @@
             "status": {
               "type": "string"
             }
-          }
-        },
-        "DeadLetterReplayResponse": {
-          "type": "object",
+          },
           "required": [
-            "attempt_id",
-            "replay_count",
+            "api_version",
             "status"
           ],
+          "type": "object"
+        },
+        "InterruptDetailResponse": {
           "properties": {
             "attempt_id": {
               "type": "string"
             },
-            "replay_count": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
+            "created_at": {
+              "type": "string"
+            },
+            "interrupt_id": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
             },
             "status": {
               "type": "string"
-            }
-          }
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "attempt_id",
+            "created_at",
+            "interrupt_id",
+            "run_id",
+            "status",
+            "thread_id",
+            "value"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_InterruptDetailResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_InterruptDetailResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/InterruptDetailResponse"
@@ -1021,13 +1064,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_InterruptDetailResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_InterruptListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1035,23 +1083,15 @@
             "status": {
               "type": "string"
             }
-          }
-        },
-        "InterruptDetailResponse": {
-          "type": "object",
+          },
           "required": [
-            "attempt_id",
-            "created_at",
-            "interrupt_id",
-            "run_id",
-            "status",
-            "thread_id",
-            "value"
+            "api_version",
+            "status"
           ],
+          "type": "object"
+        },
+        "InterruptListItem": {
           "properties": {
-            "attempt_id": {
-              "type": "string"
-            },
             "created_at": {
               "type": "string"
             },
@@ -1068,19 +1108,32 @@
               "type": "string"
             },
             "value": true
-          }
+          },
+          "required": [
+            "created_at",
+            "interrupt_id",
+            "run_id",
+            "status",
+            "thread_id",
+            "value"
+          ],
+          "type": "object"
+        },
+        "InterruptListResponse": {
+          "properties": {
+            "interrupts": {
+              "items": {
+                "$ref": "#/definitions/InterruptListItem"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "interrupts"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_InterruptListResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_InterruptListResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/InterruptListResponse"
@@ -1092,94 +1145,18 @@
           "type": "string"
         }
       },
-      "definitions": {
-        "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
-          "properties": {
-            "api_version": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            }
-          }
-        },
-        "InterruptListItem": {
-          "type": "object",
-          "required": [
-            "created_at",
-            "interrupt_id",
-            "run_id",
-            "status",
-            "thread_id",
-            "value"
-          ],
-          "properties": {
-            "created_at": {
-              "type": "string"
-            },
-            "interrupt_id": {
-              "type": "string"
-            },
-            "run_id": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            },
-            "thread_id": {
-              "type": "string"
-            },
-            "value": true
-          }
-        },
-        "InterruptListResponse": {
-          "type": "object",
-          "required": [
-            "interrupts"
-          ],
-          "properties": {
-            "interrupts": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/InterruptListItem"
-              }
-            }
-          }
-        }
-      }
-    },
-    "ApiEnvelope_JobDetailResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_JobDetailResponse",
-      "type": "object",
       "required": [
         "data",
         "meta",
         "request_id"
       ],
-      "properties": {
-        "data": {
-          "$ref": "#/definitions/JobDetailResponse"
-        },
-        "meta": {
-          "$ref": "#/definitions/ApiMeta"
-        },
-        "request_id": {
-          "type": "string"
-        }
-      },
+      "title": "ApiEnvelope_for_InterruptListResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_JobDetailResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1187,19 +1164,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "InterruptDetailResponse": {
-          "type": "object",
-          "required": [
-            "attempt_id",
-            "created_at",
-            "interrupt_id",
-            "run_id",
-            "status",
-            "thread_id",
-            "value"
-          ],
           "properties": {
             "attempt_id": {
               "type": "string"
@@ -1220,17 +1192,19 @@
               "type": "string"
             },
             "value": true
-          }
-        },
-        "JobDetailResponse": {
-          "type": "object",
+          },
           "required": [
-            "history",
+            "attempt_id",
+            "created_at",
+            "interrupt_id",
+            "run_id",
             "status",
             "thread_id",
-            "timeline",
-            "values"
+            "value"
           ],
+          "type": "object"
+        },
+        "JobDetailResponse": {
           "properties": {
             "checkpoint_id": {
               "type": [
@@ -1239,10 +1213,10 @@
               ]
             },
             "history": {
-              "type": "array",
               "items": {
                 "$ref": "#/definitions/JobHistoryItem"
-              }
+              },
+              "type": "array"
             },
             "pending_interrupt": {
               "anyOf": [
@@ -1261,10 +1235,10 @@
               "type": "string"
             },
             "timeline": {
-              "type": "array",
               "items": {
                 "$ref": "#/definitions/JobTimelineItem"
-              }
+              },
+              "type": "array"
             },
             "trace": {
               "anyOf": [
@@ -1277,13 +1251,17 @@
               ]
             },
             "values": true
-          }
+          },
+          "required": [
+            "history",
+            "status",
+            "thread_id",
+            "timeline",
+            "values"
+          ],
+          "type": "object"
         },
         "JobHistoryItem": {
-          "type": "object",
-          "required": [
-            "created_at"
-          ],
           "properties": {
             "checkpoint_id": {
               "type": [
@@ -1294,15 +1272,13 @@
             "created_at": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "created_at"
+          ],
+          "type": "object"
         },
         "JobTimelineItem": {
-          "type": "object",
-          "required": [
-            "created_at",
-            "event_type",
-            "seq"
-          ],
           "properties": {
             "checkpoint_id": {
               "type": [
@@ -1317,19 +1293,19 @@
               "type": "string"
             },
             "seq": {
-              "type": "integer",
               "format": "uint64",
-              "minimum": 0.0
+              "minimum": 0.0,
+              "type": "integer"
             }
-          }
+          },
+          "required": [
+            "created_at",
+            "event_type",
+            "seq"
+          ],
+          "type": "object"
         },
         "TraceContextResponse": {
-          "type": "object",
-          "required": [
-            "span_id",
-            "trace_id",
-            "traceparent"
-          ],
           "properties": {
             "parent_span_id": {
               "type": [
@@ -1346,19 +1322,88 @@
             "traceparent": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_JobHistoryResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_JobHistoryResponse",
-      "type": "object",
+      },
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/JobDetailResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
       "required": [
         "data",
         "meta",
         "request_id"
       ],
+      "title": "ApiEnvelope_for_JobDetailResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_JobHistoryResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ApiMeta": {
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
+        },
+        "JobHistoryItem": {
+          "properties": {
+            "checkpoint_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "created_at"
+          ],
+          "type": "object"
+        },
+        "JobHistoryResponse": {
+          "properties": {
+            "history": {
+              "items": {
+                "$ref": "#/definitions/JobHistoryItem"
+              },
+              "type": "array"
+            },
+            "thread_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "history",
+            "thread_id"
+          ],
+          "type": "object"
+        }
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/JobHistoryResponse"
@@ -1370,86 +1415,18 @@
           "type": "string"
         }
       },
-      "definitions": {
-        "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
-          "properties": {
-            "api_version": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            }
-          }
-        },
-        "JobHistoryItem": {
-          "type": "object",
-          "required": [
-            "created_at"
-          ],
-          "properties": {
-            "checkpoint_id": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "created_at": {
-              "type": "string"
-            }
-          }
-        },
-        "JobHistoryResponse": {
-          "type": "object",
-          "required": [
-            "history",
-            "thread_id"
-          ],
-          "properties": {
-            "history": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/JobHistoryItem"
-              }
-            },
-            "thread_id": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    "ApiEnvelope_JobStateResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_JobStateResponse",
-      "type": "object",
       "required": [
         "data",
         "meta",
         "request_id"
       ],
-      "properties": {
-        "data": {
-          "$ref": "#/definitions/JobStateResponse"
-        },
-        "meta": {
-          "$ref": "#/definitions/ApiMeta"
-        },
-        "request_id": {
-          "type": "string"
-        }
-      },
+      "title": "ApiEnvelope_for_JobHistoryResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_JobStateResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1457,15 +1434,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "JobStateResponse": {
-          "type": "object",
-          "required": [
-            "created_at",
-            "thread_id",
-            "values"
-          ],
           "properties": {
             "checkpoint_id": {
               "type": [
@@ -1480,22 +1456,18 @@
               "type": "string"
             },
             "values": true
-          }
+          },
+          "required": [
+            "created_at",
+            "thread_id",
+            "values"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_JobTimelineResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_JobTimelineResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
-          "$ref": "#/definitions/JobTimelineResponse"
+          "$ref": "#/definitions/JobStateResponse"
         },
         "meta": {
           "$ref": "#/definitions/ApiMeta"
@@ -1504,13 +1476,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_JobStateResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_JobTimelineResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1518,15 +1495,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "JobTimelineItem": {
-          "type": "object",
-          "required": [
-            "created_at",
-            "event_type",
-            "seq"
-          ],
           "properties": {
             "checkpoint_id": {
               "type": [
@@ -1541,41 +1517,108 @@
               "type": "string"
             },
             "seq": {
-              "type": "integer",
               "format": "uint64",
-              "minimum": 0.0
+              "minimum": 0.0,
+              "type": "integer"
             }
-          }
+          },
+          "required": [
+            "created_at",
+            "event_type",
+            "seq"
+          ],
+          "type": "object"
         },
         "JobTimelineResponse": {
-          "type": "object",
-          "required": [
-            "thread_id",
-            "timeline"
-          ],
           "properties": {
             "thread_id": {
               "type": "string"
             },
             "timeline": {
-              "type": "array",
               "items": {
                 "$ref": "#/definitions/JobTimelineItem"
-              }
+              },
+              "type": "array"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "timeline"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_ListJobsResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_ListJobsResponse",
-      "type": "object",
+      },
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/JobTimelineResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
       "required": [
         "data",
         "meta",
         "request_id"
       ],
+      "title": "ApiEnvelope_for_JobTimelineResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_ListJobsResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ApiMeta": {
+          "properties": {
+            "api_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
+        },
+        "JobListItem": {
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "updated_at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "thread_id",
+            "updated_at"
+          ],
+          "type": "object"
+        },
+        "ListJobsResponse": {
+          "properties": {
+            "jobs": {
+              "items": {
+                "$ref": "#/definitions/JobListItem"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "jobs"
+          ],
+          "type": "object"
+        }
+      },
       "properties": {
         "data": {
           "$ref": "#/definitions/ListJobsResponse"
@@ -1587,84 +1630,18 @@
           "type": "string"
         }
       },
-      "definitions": {
-        "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
-          "properties": {
-            "api_version": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            }
-          }
-        },
-        "JobListItem": {
-          "type": "object",
-          "required": [
-            "status",
-            "thread_id",
-            "updated_at"
-          ],
-          "properties": {
-            "status": {
-              "type": "string"
-            },
-            "thread_id": {
-              "type": "string"
-            },
-            "updated_at": {
-              "type": "string"
-            }
-          }
-        },
-        "ListJobsResponse": {
-          "type": "object",
-          "required": [
-            "jobs"
-          ],
-          "properties": {
-            "jobs": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/JobListItem"
-              }
-            }
-          }
-        }
-      }
-    },
-    "ApiEnvelope_RunJobResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_RunJobResponse",
-      "type": "object",
       "required": [
         "data",
         "meta",
         "request_id"
       ],
-      "properties": {
-        "data": {
-          "$ref": "#/definitions/RunJobResponse"
-        },
-        "meta": {
-          "$ref": "#/definitions/ApiMeta"
-        },
-        "request_id": {
-          "type": "string"
-        }
-      },
+      "title": "ApiEnvelope_for_ListJobsResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_RunJobResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1672,16 +1649,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "RunJobResponse": {
-          "type": "object",
-          "required": [
-            "idempotent_replay",
-            "interrupts",
-            "status",
-            "thread_id"
-          ],
           "properties": {
             "idempotency_key": {
               "type": [
@@ -1693,8 +1668,8 @@
               "type": "boolean"
             },
             "interrupts": {
-              "type": "array",
-              "items": true
+              "items": true,
+              "type": "array"
             },
             "status": {
               "type": "string"
@@ -1712,15 +1687,16 @@
                 }
               ]
             }
-          }
+          },
+          "required": [
+            "idempotent_replay",
+            "interrupts",
+            "status",
+            "thread_id"
+          ],
+          "type": "object"
         },
         "TraceContextResponse": {
-          "type": "object",
-          "required": [
-            "span_id",
-            "trace_id",
-            "traceparent"
-          ],
           "properties": {
             "parent_span_id": {
               "type": [
@@ -1737,22 +1713,18 @@
             "traceparent": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_TimelineExportResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_TimelineExportResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
-          "$ref": "#/definitions/TimelineExportResponse"
+          "$ref": "#/definitions/RunJobResponse"
         },
         "meta": {
           "$ref": "#/definitions/ApiMeta"
@@ -1761,13 +1733,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_RunJobResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_TimelineExportResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1775,13 +1752,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "JobHistoryItem": {
-          "type": "object",
-          "required": [
-            "created_at"
-          ],
           "properties": {
             "checkpoint_id": {
               "type": [
@@ -1792,15 +1770,13 @@
             "created_at": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "created_at"
+          ],
+          "type": "object"
         },
         "JobTimelineItem": {
-          "type": "object",
-          "required": [
-            "created_at",
-            "event_type",
-            "seq"
-          ],
           "properties": {
             "checkpoint_id": {
               "type": [
@@ -1815,51 +1791,47 @@
               "type": "string"
             },
             "seq": {
-              "type": "integer",
               "format": "uint64",
-              "minimum": 0.0
+              "minimum": 0.0,
+              "type": "integer"
             }
-          }
+          },
+          "required": [
+            "created_at",
+            "event_type",
+            "seq"
+          ],
+          "type": "object"
         },
         "TimelineExportResponse": {
-          "type": "object",
-          "required": [
-            "history",
-            "thread_id",
-            "timeline"
-          ],
           "properties": {
             "history": {
-              "type": "array",
               "items": {
                 "$ref": "#/definitions/JobHistoryItem"
-              }
+              },
+              "type": "array"
             },
             "thread_id": {
               "type": "string"
             },
             "timeline": {
-              "type": "array",
               "items": {
                 "$ref": "#/definitions/JobTimelineItem"
-              }
+              },
+              "type": "array"
             }
-          }
+          },
+          "required": [
+            "history",
+            "thread_id",
+            "timeline"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_WorkerAckResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_WorkerAckResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
-          "$ref": "#/definitions/WorkerAckResponse"
+          "$ref": "#/definitions/TimelineExportResponse"
         },
         "meta": {
           "$ref": "#/definitions/ApiMeta"
@@ -1868,13 +1840,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_TimelineExportResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_WorkerAckResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1882,15 +1859,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "TraceContextResponse": {
-          "type": "object",
-          "required": [
-            "span_id",
-            "trace_id",
-            "traceparent"
-          ],
           "properties": {
             "parent_span_id": {
               "type": [
@@ -1907,25 +1883,26 @@
             "traceparent": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "type": "object"
         },
         "WorkerAckResponse": {
-          "type": "object",
-          "required": [
-            "attempt_id",
-            "status"
-          ],
           "properties": {
             "attempt_id": {
               "type": "string"
             },
             "next_attempt_no": {
+              "format": "uint32",
+              "minimum": 0.0,
               "type": [
                 "integer",
                 "null"
-              ],
-              "format": "uint32",
-              "minimum": 0.0
+              ]
             },
             "next_retry_at": {
               "type": [
@@ -1946,22 +1923,17 @@
                 }
               ]
             }
-          }
+          },
+          "required": [
+            "attempt_id",
+            "status"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_WorkerLeaseResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_WorkerLeaseResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
-          "$ref": "#/definitions/WorkerLeaseResponse"
+          "$ref": "#/definitions/WorkerAckResponse"
         },
         "meta": {
           "$ref": "#/definitions/ApiMeta"
@@ -1970,13 +1942,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_WorkerAckResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_WorkerLeaseResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -1984,15 +1961,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "TraceContextResponse": {
-          "type": "object",
-          "required": [
-            "span_id",
-            "trace_id",
-            "traceparent"
-          ],
           "properties": {
             "parent_span_id": {
               "type": [
@@ -2009,15 +1985,15 @@
             "traceparent": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "type": "object"
         },
         "WorkerLeaseResponse": {
-          "type": "object",
-          "required": [
-            "lease_expires_at",
-            "lease_id",
-            "worker_id"
-          ],
           "properties": {
             "lease_expires_at": {
               "type": "string"
@@ -2038,22 +2014,18 @@
             "worker_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "lease_expires_at",
+            "lease_id",
+            "worker_id"
+          ],
+          "type": "object"
         }
-      }
-    },
-    "ApiEnvelope_WorkerPollResponse": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiEnvelope_for_WorkerPollResponse",
-      "type": "object",
-      "required": [
-        "data",
-        "meta",
-        "request_id"
-      ],
+      },
       "properties": {
         "data": {
-          "$ref": "#/definitions/WorkerPollResponse"
+          "$ref": "#/definitions/WorkerLeaseResponse"
         },
         "meta": {
           "$ref": "#/definitions/ApiMeta"
@@ -2062,13 +2034,18 @@
           "type": "string"
         }
       },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_WorkerLeaseResponse",
+      "type": "object"
+    },
+    "ApiEnvelope_WorkerPollResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "ApiMeta": {
-          "type": "object",
-          "required": [
-            "api_version",
-            "status"
-          ],
           "properties": {
             "api_version": {
               "type": "string"
@@ -2076,15 +2053,14 @@
             "status": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "api_version",
+            "status"
+          ],
+          "type": "object"
         },
         "TraceContextResponse": {
-          "type": "object",
-          "required": [
-            "span_id",
-            "trace_id",
-            "traceparent"
-          ],
           "properties": {
             "parent_span_id": {
               "type": [
@@ -2101,13 +2077,15 @@
             "traceparent": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "span_id",
+            "trace_id",
+            "traceparent"
+          ],
+          "type": "object"
         },
         "WorkerPollResponse": {
-          "type": "object",
-          "required": [
-            "decision"
-          ],
           "properties": {
             "attempt_id": {
               "type": [
@@ -2137,12 +2115,12 @@
               ]
             },
             "tenant_active_leases": {
+              "format": "uint",
+              "minimum": 0.0,
               "type": [
                 "integer",
                 "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
+              ]
             },
             "tenant_id": {
               "type": [
@@ -2151,12 +2129,12 @@
               ]
             },
             "tenant_limit": {
+              "format": "uint",
+              "minimum": 0.0,
               "type": [
                 "integer",
                 "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
+              ]
             },
             "trace": {
               "anyOf": [
@@ -2169,33 +2147,49 @@
               ]
             },
             "worker_active_leases": {
+              "format": "uint",
+              "minimum": 0.0,
               "type": [
                 "integer",
                 "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
+              ]
             },
             "worker_limit": {
+              "format": "uint",
+              "minimum": 0.0,
               "type": [
                 "integer",
                 "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
+              ]
             }
-          }
+          },
+          "required": [
+            "decision"
+          ],
+          "type": "object"
         }
-      }
+      },
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/WorkerPollResponse"
+        },
+        "meta": {
+          "$ref": "#/definitions/ApiMeta"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "meta",
+        "request_id"
+      ],
+      "title": "ApiEnvelope_for_WorkerPollResponse",
+      "type": "object"
     },
     "ApiMeta": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ApiMeta",
-      "type": "object",
-      "required": [
-        "api_version",
-        "status"
-      ],
       "properties": {
         "api_version": {
           "type": "string"
@@ -2203,12 +2197,16 @@
         "status": {
           "type": "string"
         }
-      }
+      },
+      "required": [
+        "api_version",
+        "status"
+      ],
+      "title": "ApiMeta",
+      "type": "object"
     },
     "CancelJobRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "CancelJobRequest",
-      "type": "object",
       "properties": {
         "reason": {
           "type": [
@@ -2216,12 +2214,12 @@
             "null"
           ]
         }
-      }
+      },
+      "title": "CancelJobRequest",
+      "type": "object"
     },
     "ListAuditLogsQuery": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ListAuditLogsQuery",
-      "type": "object",
       "properties": {
         "action": {
           "type": [
@@ -2230,19 +2228,19 @@
           ]
         },
         "from_ms": {
+          "format": "int64",
           "type": [
             "integer",
             "null"
-          ],
-          "format": "int64"
+          ]
         },
         "limit": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "request_id": {
           "type": [
@@ -2251,26 +2249,26 @@
           ]
         },
         "to_ms": {
+          "format": "int64",
           "type": [
             "integer",
             "null"
-          ],
-          "format": "int64"
+          ]
         }
-      }
+      },
+      "title": "ListAuditLogsQuery",
+      "type": "object"
     },
     "ListDeadLettersQuery": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ListDeadLettersQuery",
-      "type": "object",
       "properties": {
         "limit": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "status": {
           "type": [
@@ -2278,20 +2276,20 @@
             "null"
           ]
         }
-      }
+      },
+      "title": "ListDeadLettersQuery",
+      "type": "object"
     },
     "ListInterruptsQuery": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ListInterruptsQuery",
-      "type": "object",
       "properties": {
         "limit": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "run_id": {
           "type": [
@@ -2305,28 +2303,28 @@
             "null"
           ]
         }
-      }
+      },
+      "title": "ListInterruptsQuery",
+      "type": "object"
     },
     "ListJobsQuery": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ListJobsQuery",
-      "type": "object",
       "properties": {
         "limit": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "offset": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "status": {
           "type": [
@@ -2334,12 +2332,12 @@
             "null"
           ]
         }
-      }
+      },
+      "title": "ListJobsQuery",
+      "type": "object"
     },
     "RejectInterruptRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "RejectInterruptRequest",
-      "type": "object",
       "properties": {
         "reason": {
           "type": [
@@ -2347,12 +2345,12 @@
             "null"
           ]
         }
-      }
+      },
+      "title": "RejectInterruptRequest",
+      "type": "object"
     },
     "ReplayJobRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ReplayJobRequest",
-      "type": "object",
       "properties": {
         "checkpoint_id": {
           "type": [
@@ -2360,26 +2358,23 @@
             "null"
           ]
         }
-      }
+      },
+      "title": "ReplayJobRequest",
+      "type": "object"
     },
     "ResumeInterruptRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ResumeInterruptRequest",
-      "type": "object",
+      "properties": {
+        "value": true
+      },
       "required": [
         "value"
       ],
-      "properties": {
-        "value": true
-      }
+      "title": "ResumeInterruptRequest",
+      "type": "object"
     },
     "ResumeJobRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ResumeJobRequest",
-      "type": "object",
-      "required": [
-        "value"
-      ],
       "properties": {
         "checkpoint_id": {
           "type": [
@@ -2388,15 +2383,33 @@
           ]
         },
         "value": true
-      }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "ResumeJobRequest",
+      "type": "object"
     },
     "RunJobRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "RunJobRequest",
-      "type": "object",
-      "required": [
-        "thread_id"
-      ],
+      "definitions": {
+        "TimeoutPolicyRequest": {
+          "properties": {
+            "on_timeout_status": {
+              "type": "string"
+            },
+            "timeout_ms": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "on_timeout_status",
+            "timeout_ms"
+          ],
+          "type": "object"
+        }
+      },
       "properties": {
         "idempotency_key": {
           "type": [
@@ -2411,11 +2424,11 @@
           ]
         },
         "priority": {
+          "format": "int32",
           "type": [
             "integer",
             "null"
-          ],
-          "format": "int32"
+          ]
         },
         "tenant_id": {
           "type": [
@@ -2437,33 +2450,52 @@
           ]
         }
       },
-      "definitions": {
-        "TimeoutPolicyRequest": {
-          "type": "object",
-          "required": [
-            "on_timeout_status",
-            "timeout_ms"
-          ],
-          "properties": {
-            "on_timeout_status": {
-              "type": "string"
-            },
-            "timeout_ms": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      }
+      "required": [
+        "thread_id"
+      ],
+      "title": "RunJobRequest",
+      "type": "object"
     },
     "WorkerAckRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "WorkerAckRequest",
-      "type": "object",
-      "required": [
-        "attempt_id",
-        "terminal_status"
-      ],
+      "definitions": {
+        "RetryPolicyRequest": {
+          "properties": {
+            "backoff_ms": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "max_backoff_ms": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "max_retries": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "multiplier": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "strategy": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "backoff_ms",
+            "max_retries",
+            "strategy"
+          ],
+          "type": "object"
+        }
+      },
       "properties": {
         "attempt_id": {
           "type": "string"
@@ -2482,132 +2514,92 @@
           "type": "string"
         }
       },
-      "definitions": {
-        "RetryPolicyRequest": {
-          "type": "object",
-          "required": [
-            "backoff_ms",
-            "max_retries",
-            "strategy"
-          ],
-          "properties": {
-            "backoff_ms": {
-              "type": "integer",
-              "format": "int64"
-            },
-            "max_backoff_ms": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "int64"
-            },
-            "max_retries": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "multiplier": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "format": "double"
-            },
-            "strategy": {
-              "type": "string"
-            }
-          }
-        }
-      }
+      "required": [
+        "attempt_id",
+        "terminal_status"
+      ],
+      "title": "WorkerAckRequest",
+      "type": "object"
     },
     "WorkerExtendLeaseRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "WorkerExtendLeaseRequest",
-      "type": "object",
-      "required": [
-        "lease_id"
-      ],
       "properties": {
         "lease_id": {
           "type": "string"
         },
         "lease_ttl_seconds": {
+          "format": "int64",
           "type": [
             "integer",
             "null"
-          ],
-          "format": "int64"
+          ]
         }
-      }
+      },
+      "required": [
+        "lease_id"
+      ],
+      "title": "WorkerExtendLeaseRequest",
+      "type": "object"
     },
     "WorkerHeartbeatRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "WorkerHeartbeatRequest",
-      "type": "object",
-      "required": [
-        "lease_id"
-      ],
       "properties": {
         "lease_id": {
           "type": "string"
         },
         "lease_ttl_seconds": {
+          "format": "int64",
           "type": [
             "integer",
             "null"
-          ],
-          "format": "int64"
+          ]
         }
-      }
+      },
+      "required": [
+        "lease_id"
+      ],
+      "title": "WorkerHeartbeatRequest",
+      "type": "object"
     },
     "WorkerPollRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "WorkerPollRequest",
-      "type": "object",
-      "required": [
-        "worker_id"
-      ],
       "properties": {
         "limit": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "max_active_leases": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "tenant_max_active_leases": {
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "worker_id": {
           "type": "string"
         }
-      }
+      },
+      "required": [
+        "worker_id"
+      ],
+      "title": "WorkerPollRequest",
+      "type": "object"
     },
     "WorkerReportStepRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "WorkerReportStepRequest",
-      "type": "object",
-      "required": [
-        "action_id",
-        "attempt_id",
-        "dedupe_token",
-        "status"
-      ],
       "properties": {
         "action_id": {
           "type": "string"
@@ -2621,7 +2613,15 @@
         "status": {
           "type": "string"
         }
-      }
+      },
+      "required": [
+        "action_id",
+        "attempt_id",
+        "dedupe_token",
+        "status"
+      ],
+      "title": "WorkerReportStepRequest",
+      "type": "object"
     }
   }
 }

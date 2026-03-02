@@ -1,5 +1,18 @@
 # Oris Kernel API (2.0)
 
+As of March 2, 2026, the reusable kernel implementation also lives in the standalone
+`oris-kernel` crate. `oris_runtime::kernel` remains as a compatibility re-export for
+existing callers. Graph-dependent execution-server/runtime API helpers now live under
+`oris_runtime::execution_runtime` (graph-agnostic core) and
+`oris_runtime::execution_server` (graph-aware HTTP and benchmark surface), backed by
+the standalone `oris-execution-runtime` crate for the control-plane core.
+The standalone `oris-execution-server` crate now provides a package-level facade
+for that graph-aware surface while the graph engine remains inside `oris-runtime`.
+`oris_runtime::kernel::runtime` remains a compatibility re-export, and the
+graph-aware compatibility exports under `oris_runtime::execution_runtime::*` and
+`oris_runtime::kernel::*` are now deprecated in favor of
+`oris_runtime::execution_server::*`.
+
 This document defines the **minimal complete set** of interfaces that constitute the Oris execution kernel. It aligns with the axioms in [ORIS_2.0_STRATEGY.md](ORIS_2.0_STRATEGY.md) and ensures the runtime satisfies four properties:
 
 1. **Run** — Long-running execution with identity

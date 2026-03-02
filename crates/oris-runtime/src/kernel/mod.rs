@@ -1,102 +1,76 @@
-//! Oris Kernel API (2.0).
+//! Compatibility shim for the extracted `oris-kernel` crate.
 //!
-//! Minimal complete set of interfaces: Run (identity), Event Log (source of truth),
-//! Replay, Action (single channel for tools/external world, governable).
-//! Graph and Agent compile down to StepFn; tools implement ActionExecutor.
+//! Graph-dependent runtime helpers now live under [`crate::execution_runtime`]
+//! and [`crate::execution_server`].
+//! `crate::kernel::runtime` remains as a compatibility re-export.
 
-pub mod action;
-pub mod determinism_guard;
-pub mod driver;
-pub mod event;
-pub mod event_store;
-pub mod execution_log;
-pub mod execution_step;
-pub mod execution_suspension;
-pub mod identity;
-pub mod interrupt;
-pub mod interrupt_resolver;
-pub mod kernel_mode;
-pub mod policy;
-#[cfg(feature = "kernel-postgres")]
-pub mod postgres_store;
-pub mod reducer;
-pub mod replay_cursor;
-pub mod replay_resume;
-pub mod replay_verifier;
-pub mod runner;
-pub mod runtime;
-pub mod runtime_effect;
-pub mod snapshot;
-pub mod state;
-pub mod step;
-pub mod stubs;
-pub mod timeline;
-pub mod timeline_fork;
+pub use oris_kernel::*;
 
-pub use action::{Action, ActionError, ActionErrorKind, ActionExecutor, ActionResult};
-pub use determinism_guard::{
-    compute_event_stream_hash, event_stream_hash, verify_event_stream_hash, DeterminismGuard,
-};
-pub use driver::{BlockedInfo, Kernel, RunStatus, Signal};
-pub use event::{Event, EventStore, KernelError, SequencedEvent};
-pub use event_store::{InMemoryEventStore, SharedEventStore};
-pub use execution_log::{scan_execution_log, ExecutionLog};
-pub use execution_step::{ExecutionStep, ExecutionStepInput, StepResult};
-pub use execution_suspension::{ExecutionSuspension, ExecutionSuspensionState, SuspensionError};
-pub use identity::{RunId, Seq, StepId};
-pub use interrupt::{Interrupt, InterruptError, InterruptId, InterruptKind, InterruptStore};
-pub use interrupt_resolver::{
-    InterruptResolver, InterruptResolverError, InterruptSource, ResolveResult,
-};
-pub use kernel_mode::KernelMode;
-pub use policy::{
-    AllowListPolicy, BudgetRules, Policy, PolicyCtx, RetryDecision, RetryWithBackoffPolicy,
-};
-#[cfg(feature = "kernel-postgres")]
-pub use postgres_store::{PostgresEventStore, PostgresSnapshotStore};
-pub use reducer::{Reducer, StateUpdatedOnlyReducer};
-pub use replay_cursor::{ReplayCursor, ReplayStepIter};
-pub use replay_resume::{ReplayResume, ResumeDecision, ResumeResult};
-pub use replay_verifier::{ReplayVerifier, VerificationFailure, VerificationResult, VerifyConfig};
-pub use runner::KernelRunner;
-#[cfg(feature = "kernel-postgres")]
-pub use runtime::PostgresRuntimeRepository;
+pub mod runtime {
+    pub use oris_execution_runtime::*;
+
+    #[cfg(feature = "execution-server")]
+    #[deprecated(
+        since = "0.2.12",
+        note = "use `oris_runtime::execution_server::{build_router, ApiRole, ExecutionApiState}` instead"
+    )]
+    pub use crate::execution_server::{build_router, ApiRole, ExecutionApiState};
+
+    #[cfg(all(feature = "execution-server", feature = "sqlite-persistence"))]
+    #[deprecated(
+        since = "0.2.12",
+        note = "use `oris_runtime::execution_server::*` instead of `oris_runtime::kernel::runtime::*` for benchmark helpers"
+    )]
+    pub use crate::execution_server::{
+        canonical_runtime_benchmark_baseline_path, run_runtime_benchmark_suite,
+        runtime_benchmark_suite_pretty_json, write_runtime_benchmark_suite,
+        RuntimeBenchmarkEnvironment, RuntimeBenchmarkMetric, RuntimeBenchmarkSuiteReport,
+        RUNTIME_BENCHMARK_BASELINE_DOC_PATH,
+    };
+}
+
 #[cfg(feature = "execution-server")]
-pub use runtime::{
-    build_router, canonical_runtime_api_contract_path, generate_runtime_api_contract,
-    runtime_api_contract_pretty_json, write_runtime_api_contract, ApiEnvelope, ApiError, ApiMeta,
-    ApiRole, AttemptRetryHistoryItem, AttemptRetryHistoryResponse, AuditLogItem,
-    AuditLogListResponse, CancelJobRequest, CancelJobResponse, CheckpointInspectResponse,
-    DeadLetterItem, DeadLetterListResponse, DeadLetterReplayResponse, ExecutionApiState,
-    InterruptDetailResponse, InterruptListResponse, JobDetailResponse, JobHistoryItem,
-    JobHistoryResponse, JobStateResponse, JobTimelineItem, JobTimelineResponse, ListAuditLogsQuery,
-    ListDeadLettersQuery, ListInterruptsQuery, ListJobsQuery, ListJobsResponse,
-    RejectInterruptRequest, ReplayJobRequest, ResumeInterruptRequest, ResumeJobRequest,
-    RetryPolicyRequest, RunJobRequest, RunJobResponse, TimelineExportResponse,
-    TimeoutPolicyRequest, TraceContextResponse, WorkerAckRequest, WorkerAckResponse,
-    WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse, WorkerPollRequest,
-    WorkerPollResponse, WorkerReportStepRequest, RUNTIME_API_CONTRACT_DOC_PATH,
-};
+#[deprecated(
+    since = "0.2.12",
+    note = "use `oris_runtime::execution_server::{build_router, ApiRole, ExecutionApiState}`"
+)]
+pub use crate::execution_server::{build_router, ApiRole, ExecutionApiState};
 #[cfg(all(feature = "execution-server", feature = "sqlite-persistence"))]
-pub use runtime::{
+#[deprecated(
+    since = "0.2.12",
+    note = "use `oris_runtime::execution_server::*` for graph-aware benchmark helpers"
+)]
+pub use crate::execution_server::{
     canonical_runtime_benchmark_baseline_path, run_runtime_benchmark_suite,
     runtime_benchmark_suite_pretty_json, write_runtime_benchmark_suite,
     RuntimeBenchmarkEnvironment, RuntimeBenchmarkMetric, RuntimeBenchmarkSuiteReport,
     RUNTIME_BENCHMARK_BASELINE_DOC_PATH,
 };
-pub use runtime::{
+#[cfg(feature = "kernel-postgres")]
+pub use oris_execution_runtime::PostgresRuntimeRepository;
+#[cfg(feature = "execution-server")]
+pub use oris_execution_runtime::{
+    canonical_runtime_api_contract_path, generate_runtime_api_contract,
+    runtime_api_contract_pretty_json, write_runtime_api_contract, ApiEnvelope, ApiError, ApiMeta,
+    AttemptRetryHistoryItem, AttemptRetryHistoryResponse, AuditLogItem, AuditLogListResponse,
+    CancelJobRequest, CancelJobResponse, CheckpointInspectResponse, DeadLetterItem,
+    DeadLetterListResponse, DeadLetterReplayResponse, InterruptDetailResponse,
+    InterruptListResponse, JobDetailResponse, JobHistoryItem, JobHistoryResponse, JobStateResponse,
+    JobTimelineItem, JobTimelineResponse, ListAuditLogsQuery, ListDeadLettersQuery,
+    ListInterruptsQuery, ListJobsQuery, ListJobsResponse, RejectInterruptRequest, ReplayJobRequest,
+    ResumeInterruptRequest, ResumeJobRequest, RetryPolicyRequest, RunJobRequest, RunJobResponse,
+    TimelineExportResponse, TimeoutPolicyRequest, TraceContextResponse, WorkerAckRequest,
+    WorkerAckResponse, WorkerExtendLeaseRequest, WorkerHeartbeatRequest, WorkerLeaseResponse,
+    WorkerPollRequest, WorkerPollResponse, WorkerReportStepRequest, RUNTIME_API_CONTRACT_DOC_PATH,
+};
+pub use oris_execution_runtime::{
     AttemptDispatchRecord, AttemptExecutionStatus, InterruptRecord, LeaseConfig, LeaseManager,
     LeaseRecord, LeaseTickResult, RepositoryLeaseManager, RunRecord, RunRuntimeStatus,
     RuntimeRepository, SchedulerDecision, SkeletonScheduler,
 };
 #[cfg(all(feature = "execution-server", feature = "sqlite-persistence"))]
-pub use runtime::{IdempotencyRecord, SqliteIdempotencyStore, SqliteRuntimeRepository};
+pub use oris_execution_runtime::{
+    IdempotencyRecord, SqliteIdempotencyStore, SqliteRuntimeRepository,
+};
 #[cfg(feature = "sqlite-persistence")]
-pub use runtime::{RuntimeStorageBackend, RuntimeStorageConfig};
-pub use runtime_effect::{EffectSink, NoopEffectSink, RuntimeEffect};
-pub use snapshot::{InMemorySnapshotStore, Snapshot, SnapshotStore};
-pub use state::KernelState;
-pub use step::{InterruptInfo, Next, StepFn};
-pub use stubs::{AllowAllPolicy, NoopActionExecutor, NoopStepFn};
-pub use timeline::{run_timeline, RunStatusSummary, RunTimeline, TimelineEntry};
-pub use timeline_fork::{ForkResult, TimelineFork, TimelineForker};
+pub use oris_execution_runtime::{RuntimeStorageBackend, RuntimeStorageConfig};

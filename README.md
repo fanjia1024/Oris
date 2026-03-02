@@ -304,6 +304,13 @@ cargo generate --git https://github.com/Colin4k1024/Oris.git --subfolder example
 - [Open source onboarding guide (ZH)](docs/open-source-onboarding-zh.md)
 - [Observability assets (Grafana + alerts)](docs/observability/)
 
+Execution runtime namespaces:
+
+- `oris_runtime::execution_runtime` — graph-agnostic control-plane types, repositories, scheduler, and API contract models.
+- `oris_runtime::execution_server` — graph-aware HTTP server and benchmark helpers such as `build_router` and `ExecutionApiState`.
+- `oris-execution-server` — package-level facade for the graph-aware execution server surface; use this crate if you want a dedicated dependency for the HTTP layer.
+- Legacy graph-aware re-exports from `oris_runtime::execution_runtime` and `oris_runtime::kernel` still compile, but they are deprecated compatibility shims.
+
 Start the execution server:
 
 ```bash

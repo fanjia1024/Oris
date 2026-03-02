@@ -33,6 +33,14 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+oris-execution-runtime = { path = "../oris-execution-runtime", default-features = false }
+oris-kernel = { path = "../oris-kernel", default-features = false }
+oris-evokernel = { path = "../oris-evokernel", optional = true }
+oris-governor = { path = "../oris-governor", optional = true }
+oris-evolution-network = { path = "../oris-evolution-network", optional = true }
+oris-economics = { path = "../oris-economics", optional = true }
+oris-spec = { path = "../oris-spec", optional = true }
+oris-agent-contract = { path = "../oris-agent-contract", optional = true }
 scraper = "0.21"
 serde = { version = "1.0", features = ["derive"] }
 async-trait = "0.1.80"
@@ -143,14 +151,23 @@ pdf-extract = ["dep:lopdf", "dep:pdf-extract"]
 ollama = ["ollama-rs"]
 opensearch = ["dep:opensearch", "aws-config"]
 postgres = ["pgvector", "dep:sqlx", "uuid"]
-kernel-postgres = ["dep:sqlx"]
+kernel-postgres = [
+    "dep:sqlx",
+    "oris-kernel/kernel-postgres",
+    "oris-execution-runtime/kernel-postgres",
+]
 qdrant = ["qdrant-client", "uuid"]
 sqlite-vss = ["dep:sqlx"]
 sqlite-vec = ["dep:sqlx"]
 surrealdb = ["dep:surrealdb"]
 in-memory = []
 uuid = ["dep:uuid"]
-sqlite-persistence = ["rusqlite", "dep:uuid"]
+sqlite-persistence = [
+    "rusqlite",
+    "dep:uuid",
+    "oris-kernel/sqlite-persistence",
+    "oris-execution-runtime/sqlite-persistence",
+]
 chroma = ["dep:chromadb", "uuid"]
 faiss = ["dep:hnsw_rs", "uuid"]
 milvus = ["dep:milvus-sdk-rust", "uuid"]
@@ -180,7 +197,27 @@ excel = ["calamine"]
 aws-s3 = ["aws-sdk-s3", "aws-config"]
 github = ["octocrab", "dep:base64"]
 browser-use = ["dep:headless_chrome"]
-execution-server = ["dep:axum", "dep:uuid", "dep:tracing"]
+execution-server = [
+    "dep:axum",
+    "dep:uuid",
+    "dep:tracing",
+    "oris-kernel/execution-server",
+    "oris-execution-runtime/execution-server",
+]
+evolution-experimental = ["dep:oris-evokernel"]
+governor-experimental = ["dep:oris-governor"]
+evolution-network-experimental = ["dep:oris-evolution-network", "evolution-experimental"]
+economics-experimental = ["dep:oris-economics"]
+spec-experimental = ["dep:oris-spec"]
+agent-contract-experimental = ["dep:oris-agent-contract"]
+full-evolution-experimental = [
+    "evolution-experimental",
+    "governor-experimental",
+    "evolution-network-experimental",
+    "economics-experimental",
+    "spec-experimental",
+    "agent-contract-experimental",
+]
 # Retriever features
 wikipedia = []
 arxiv = []

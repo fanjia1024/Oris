@@ -1,0 +1,36 @@
+[package]
+name = "oris-kernel"
+version = "0.2.12"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+repository = "https://github.com/Colin4k1024/Oris"
+license = "MIT"
+description = "Deterministic execution kernel for Oris."
+
+[dependencies]
+async-trait = "0.1.80"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+schemars = { version = "0.8", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+sqlx = { version = "0.8.0", default-features = false, features = [
+    "postgres",
+    "runtime-tokio-native-tls",
+    "json",
+], optional = true }
+thiserror = "2.0.0"
+tokio = { version = "1", features = ["full"] }
+tracing = { version = "0.1", optional = true }
+
+[features]
+default = []
+execution-server = []
+kernel-postgres = ["dep:sqlx"]
+sqlite-persistence = ["dep:rusqlite"]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

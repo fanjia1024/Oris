@@ -1,0 +1,12 @@
+[package]
+name = "evo_oris_repo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+oris-evolution = { path = "../../crates/oris-evolution" }
+oris-evokernel = { path = "../../crates/oris-evokernel" }
+oris-kernel = { path = "../../crates/oris-kernel" }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }

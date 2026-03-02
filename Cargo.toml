@@ -1,7 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/oris-execution-server",
+    "crates/oris-execution-runtime",
+    "crates/oris-kernel",
+    "crates/oris-evolution",
+    "crates/oris-sandbox",
+    "crates/oris-evokernel",
+    "crates/oris-governor",
+    "crates/oris-evolution-network",
+    "crates/oris-economics",
+    "crates/oris-spec",
+    "crates/oris-agent-contract",
     "crates/oris-runtime",
+    "examples/evo_oris_repo",
     "examples/vector_store_surrealdb",
     "examples/oris_starter_axum",
     "examples/oris_worker_tokio",

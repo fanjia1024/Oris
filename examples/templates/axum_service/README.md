@@ -2,6 +2,11 @@
 
 Use this template when you want an app-local Oris runtime behind HTTP APIs.
 
+Dependency split:
+
+- `oris-runtime` for graph state, persistence, and runtime storage config
+- `oris-execution-server` for `build_router` and `ExecutionApiState`
+
 ## What you get
 
 - Axum server with `/healthz`

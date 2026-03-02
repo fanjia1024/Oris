@@ -1,0 +1,11 @@
+[package]
+name = "oris-economics"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+license = "MIT"
+description = "Local EVU ledger and reputation accounting for Oris evolution."
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }

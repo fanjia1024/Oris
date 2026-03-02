@@ -8,6 +8,20 @@ This document defines Oris’s architectural positioning, core axioms, and a two
 
 **Oris is the execution kernel for reasoning processes: durable, interruptible, and replayable by design.**
 
+Current repo status (March 2, 2026): the deterministic kernel is now extracted into
+`crates/oris-kernel`, while `crates/oris-runtime` keeps `oris_runtime::kernel` as a
+compatibility facade and hosts higher-level runtime APIs under
+`oris_runtime::execution_runtime` and `oris_runtime::execution_server`. The
+graph-agnostic execution runtime core now lives in `crates/oris-execution-runtime`,
+while graph-bound handlers stay in `crates/oris-runtime`. Legacy graph-aware
+re-exports from `oris_runtime::execution_runtime` and `oris_runtime::kernel`
+are now deprecated compatibility shims. A new `crates/oris-execution-server`
+package now fronts that HTTP surface for downstream users while implementation
+still remains graph-bound inside `oris-runtime`.
+The experimental EvoKernel
+stack (`oris-evolution`, `oris-sandbox`, `oris-evokernel`) now layers append-only
+evolution memory and replay-first reuse on top of that kernel.
+
 Unlike generic workflow engines, Oris manages the full lifecycle of *reasoning*—the multi-step, non-deterministic decision-making that involves LLMs, tools, and human-in-the-loop—as a first-class execution model.
 
 ---

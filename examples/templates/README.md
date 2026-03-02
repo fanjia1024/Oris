@@ -6,7 +6,7 @@ This directory contains reusable `cargo-generate` project skeletons for external
 
 | Template | Target scenario | Includes |
 |---|---|---|
-| `axum_service` | Integrate Oris into a Rust HTTP backend | Axum server, health check, runtime API router, SQLite durable execution |
+| `axum_service` | Integrate Oris into a Rust HTTP backend | Axum server, health check, `oris-execution-server` router, SQLite durable execution |
 | `worker_only` | Run workers against an existing execution server | Poll/heartbeat/ack loop with backpressure-aware behavior |
 | `operator_cli` | Operate jobs from terminal | `run/list/inspect/resume/replay/cancel` command set |
 

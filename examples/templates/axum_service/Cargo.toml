@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 axum = "0.7"
-oris-runtime = { version = "0.1", features = ["sqlite-persistence", "execution-server"] }
+oris-execution-server = { version = "0.2", features = ["sqlite-persistence", "execution-server"] }
+oris-runtime = { version = "0.2", features = ["sqlite-persistence"] }
 serde_json = "1.0"
 tokio = { version = "1.36", features = ["full"] }
 tracing = "0.1"

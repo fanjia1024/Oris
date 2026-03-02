@@ -3,7 +3,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use oris_runtime::kernel::{
+use oris_runtime::execution_runtime::{
     canonical_runtime_api_contract_path, write_runtime_api_contract, RUNTIME_API_CONTRACT_DOC_PATH,
 };
 

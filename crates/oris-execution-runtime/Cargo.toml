@@ -1,0 +1,38 @@
+[package]
+name = "oris-execution-runtime"
+version = "0.2.12"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+repository = "https://github.com/Colin4k1024/Oris"
+license = "MIT"
+description = "Execution runtime control plane and repositories for Oris."
+
+[dependencies]
+async-trait = "0.1.80"
+axum = { version = "0.7", optional = true }
+chrono = { version = "0.4", features = ["serde"] }
+oris-kernel = { path = "../oris-kernel", default-features = false }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+schemars = { version = "0.8", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8.0", default-features = false, features = [
+    "postgres",
+    "sqlite",
+    "runtime-tokio-native-tls",
+    "json",
+    "uuid",
+], optional = true }
+tracing = { version = "0.1", optional = true }
+uuid = { version = "1.8.0", features = ["v4"], optional = true }
+
+[features]
+default = []
+execution-server = ["dep:axum", "dep:uuid", "dep:tracing"]
+kernel-postgres = ["dep:sqlx", "oris-kernel/kernel-postgres"]
+sqlite-persistence = ["dep:rusqlite", "dep:uuid", "oris-kernel/sqlite-persistence"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }

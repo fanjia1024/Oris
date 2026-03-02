@@ -53,16 +53,36 @@
 
 /// Agents: conversational and unified agents, tools, executor, middleware, Deep Agent. **Stable API.**
 pub mod agent;
+/// Agent runtime contract: proposal-only interface for external agents. Experimental API.
+#[cfg(feature = "agent-contract-experimental")]
+pub mod agent_contract;
 /// Chains: LLM, conversational, sequential, QA, SQL, RAG chains and options. Experimental API in 0.1.x.
 pub mod chain;
 /// Document loaders: PDF, HTML, CSV, Git, S3, and more (feature-gated). Experimental API in 0.1.x.
 pub mod document_loaders;
 /// Embedding models (OpenAI, Ollama, FastEmbed, etc.; feature-gated). Experimental API in 0.1.x.
 pub mod embedding;
+/// Economics layer: EVU ledger and reputation accounting. Experimental API.
+#[cfg(feature = "economics-experimental")]
+pub mod economics;
 /// Unified error types and utilities.
 pub mod error;
+/// EvoKernel API: mutation, sandboxed validation, evolution memory, replay-first reuse. Experimental API.
+#[cfg(feature = "evolution-experimental")]
+pub mod evolution;
+/// Evolution network: OEN envelope and remote asset transport contracts. Experimental API.
+#[cfg(feature = "evolution-network-experimental")]
+pub mod evolution_network;
+/// Execution runtime control plane, scheduler, repositories, and compatibility re-exports.
+pub mod execution_runtime;
+/// Graph-aware HTTP execution server and benchmark helpers.
+#[cfg(feature = "execution-server")]
+pub mod execution_server;
 /// Graph: state graphs, streaming, persistence, subgraphs, interrupts. **Stable API.**
 pub mod graph;
+/// Governor: policy-only promotion, revocation, and cooldown rules. Experimental API.
+#[cfg(feature = "governor-experimental")]
+pub mod governor;
 /// Kernel API (2.0): event log, snapshot, reducer, action, step, policy, driver. Experimental API in 0.1.x.
 pub mod kernel;
 /// Common LLM/embedding traits and config. Experimental API in 0.1.x.
@@ -85,6 +105,9 @@ pub mod retrievers;
 pub mod schemas;
 /// Semantic routing and routing layers. Experimental API in 0.1.x.
 pub mod semantic_router;
+/// Spec compiler contracts: repository-native OUSL YAML definitions. Experimental API.
+#[cfg(feature = "spec-experimental")]
+pub mod spec_contract;
 /// Text splitters and code splitters (tree-sitter when enabled). Experimental API in 0.1.x.
 pub mod text_splitter;
 /// Tools: command, search, Wolfram, long-term memory, etc. **Stable API.**
