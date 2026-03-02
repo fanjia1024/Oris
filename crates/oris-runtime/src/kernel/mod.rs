@@ -11,13 +11,17 @@ pub mod event;
 pub mod event_store;
 pub mod execution_log;
 pub mod execution_step;
+pub mod execution_suspension;
 pub mod identity;
+pub mod interrupt;
+pub mod interrupt_resolver;
 pub mod kernel_mode;
 pub mod policy;
 #[cfg(feature = "kernel-postgres")]
 pub mod postgres_store;
 pub mod reducer;
 pub mod replay_cursor;
+pub mod replay_resume;
 pub mod replay_verifier;
 pub mod runner;
 pub mod runtime;
@@ -27,6 +31,7 @@ pub mod state;
 pub mod step;
 pub mod stubs;
 pub mod timeline;
+pub mod timeline_fork;
 
 pub use action::{Action, ActionError, ActionErrorKind, ActionExecutor, ActionResult};
 pub use determinism_guard::{
@@ -37,7 +42,12 @@ pub use event::{Event, EventStore, KernelError, SequencedEvent};
 pub use event_store::{InMemoryEventStore, SharedEventStore};
 pub use execution_log::{scan_execution_log, ExecutionLog};
 pub use execution_step::{ExecutionStep, ExecutionStepInput, StepResult};
+pub use execution_suspension::{ExecutionSuspension, ExecutionSuspensionState, SuspensionError};
 pub use identity::{RunId, Seq, StepId};
+pub use interrupt::{Interrupt, InterruptError, InterruptId, InterruptKind, InterruptStore};
+pub use interrupt_resolver::{
+    InterruptResolver, InterruptResolverError, InterruptSource, ResolveResult,
+};
 pub use kernel_mode::KernelMode;
 pub use policy::{
     AllowListPolicy, BudgetRules, Policy, PolicyCtx, RetryDecision, RetryWithBackoffPolicy,
@@ -46,6 +56,7 @@ pub use policy::{
 pub use postgres_store::{PostgresEventStore, PostgresSnapshotStore};
 pub use reducer::{Reducer, StateUpdatedOnlyReducer};
 pub use replay_cursor::{ReplayCursor, ReplayStepIter};
+pub use replay_resume::{ReplayResume, ResumeDecision, ResumeResult};
 pub use replay_verifier::{ReplayVerifier, VerificationFailure, VerificationResult, VerifyConfig};
 pub use runner::KernelRunner;
 #[cfg(feature = "kernel-postgres")]
@@ -88,3 +99,4 @@ pub use state::KernelState;
 pub use step::{InterruptInfo, Next, StepFn};
 pub use stubs::{AllowAllPolicy, NoopActionExecutor, NoopStepFn};
 pub use timeline::{run_timeline, RunStatusSummary, RunTimeline, TimelineEntry};
+pub use timeline_fork::{ForkResult, TimelineFork, TimelineForker};
