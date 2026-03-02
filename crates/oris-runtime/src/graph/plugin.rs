@@ -75,6 +75,11 @@ impl<S: State> NodePluginRegistry<S> {
         self.plugins.contains_key(plugin_type)
     }
 
+    /// Unregister a plugin by type (dynamic unloading). Returns true if the plugin was removed.
+    pub fn unregister_plugin(&mut self, plugin_type: &str) -> bool {
+        self.plugins.remove(plugin_type).is_some()
+    }
+
     /// Return registered plugin types in stable order.
     pub fn plugin_types(&self) -> Vec<String> {
         let mut plugin_types = self.plugins.keys().cloned().collect::<Vec<_>>();
@@ -245,6 +250,17 @@ mod tests {
         };
 
         assert!(matches!(err, GraphError::CompilationError(_)));
+    }
+
+    #[test]
+    fn registry_unregister_plugin_removes_and_prevents_create() {
+        let mut registry = build_registry();
+        assert!(registry.contains("echo"));
+        assert!(registry.unregister_plugin("echo"));
+        assert!(!registry.contains("echo"));
+        assert!(!registry.unregister_plugin("echo"));
+        let result = registry.create_node("x", "echo", &serde_json::json!({"prefix": "hi"}));
+        assert!(matches!(result, Err(GraphError::CompilationError(_))));
     }
 
     #[test]
