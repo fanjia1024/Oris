@@ -73,6 +73,8 @@ pub mod llm;
 pub mod memory;
 /// Output parsers for chains and agents. Experimental API in 0.1.x.
 pub mod output_parsers;
+/// Plugin categories and interfaces (Node, Tool, Memory, LLMAdapter, Scheduler). Experimental API in 0.1.x.
+pub mod plugins;
 /// Prompts, templates, and message formatting. Experimental API in 0.1.x.
 pub mod prompt;
 /// RAG: agentic, hybrid, and two-step retrieval-augmented generation. Experimental API in 0.1.x.

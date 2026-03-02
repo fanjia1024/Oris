@@ -3,15 +3,24 @@ use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::plugins::PluginMetadata;
+
 use super::{error::GraphError, node::Node, state::State};
 
 /// Runtime plugin interface for constructing custom graph node types from configuration.
 ///
 /// A plugin is responsible for validating its configuration and returning a concrete
-/// node implementation for the requested graph state type.
+/// node implementation for the requested graph state type. This is the **Node** category
+/// in the kernel plugin system (see [`crate::plugins::PluginCategory`]). Must declare
+/// [PluginMetadata] for kernel enforcement (replay, sandbox).
 pub trait NodePlugin<S: State>: Send + Sync {
     /// Stable plugin type identifier used for registration and lookup.
     fn plugin_type(&self) -> &str;
+
+    /// Declared behavioral boundaries for kernel enforcement. Default is conservative.
+    fn plugin_metadata(&self) -> PluginMetadata {
+        PluginMetadata::conservative()
+    }
 
     /// Create a node instance for the provided graph node name and configuration payload.
     fn create_node(&self, name: &str, config: &Value) -> Result<Arc<dyn Node<S>>, GraphError>;
